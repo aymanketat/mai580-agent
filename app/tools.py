@@ -7,9 +7,15 @@ ARXIV_LIVE=1, so tests and demos run offline.
 Every tool returns data, never raises: ToolNode's default error handler only converts bad
 arguments into a ToolMessage and re-raises everything else, which would abort the whole run.
 """
+import difflib
 import json
 import os
 import re
+import time
+import unicodedata
+import urllib.error
+import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
@@ -161,4 +167,106 @@ def format_citation(arxiv_id: str, style: Literal["apa", "bibtex", "ieee"] = "ap
     return {"arxiv_id": bare, "style": style, "citation": citation}
 
 
-TOOLS = [search_papers, get_paper, format_citation]
+# ---------------------------------------------------------------- Stage 5
+S2_API = ("https://api.semanticscholar.org/graph/v1/paper/arXiv:{id}"
+          "?fields=title,year,citationCount,influentialCitationCount")
+S2_TTL_S = 24 * 3600
+_S2_CACHE: dict[str, tuple[dict, float]] = {}            # arxiv_id -> (result, fetched_at)
+
+
+def _s2_get(arxiv_id: str, _retry: bool = True) -> dict:
+    """One Semantic Scholar request. Errors come back as {"error": ...}, never as exceptions.
+
+    The unauthenticated pool is shared per IP and answers 429 readily (seen during the Stage 5
+    experiment), so a 429 is retried once after the Retry-After delay (capped at 5 s).
+    """
+    if os.getenv("S2_LIVE", "1") != "1":
+        return {"error": "offline", "detail": "S2_LIVE is not 1"}
+    req = urllib.request.Request(S2_API.format(id=arxiv_id), headers={"User-Agent": "mai580-agent/0.1"})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return json.loads(r.read())
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return {"error": "not_found", "detail": f"Semantic Scholar has no record for arXiv:{arxiv_id}"}
+        if exc.code == 429:
+            if _retry:
+                time.sleep(min(float(exc.headers.get("Retry-After", 2) or 2), 5))
+                return _s2_get(arxiv_id, _retry=False)
+            return {"error": "rate_limited", "detail": "Semantic Scholar rate limit hit; try again in a minute"}
+        return {"error": "unavailable", "detail": f"HTTP {exc.code}"}
+    except Exception as exc:
+        return {"error": "unavailable", "detail": str(exc)}
+
+
+@tool
+def get_citation_count(arxiv_id: str) -> dict:
+    """Return how many times a paper has been cited according to Semantic Scholar, with the
+    retrieval date. Requires the arXiv id: resolve titles with search_papers or check_citation
+    first. On failure returns an error (not_found, rate_limited, offline, unavailable), never a
+    guessed number: tell the student the count could not be retrieved."""
+    bare = normalize_id(arxiv_id)
+    if bare is None:
+        return {"error": f"'{arxiv_id}' is not an arXiv id", "hint": "use search_papers to find the id first"}
+    cached = _S2_CACHE.get(bare)
+    if cached and time.time() - cached[1] < S2_TTL_S:
+        return {**cached[0], "source": "cache"}
+    data = _s2_get(bare)
+    if "error" in data:
+        return {"arxiv_id": bare, **data}
+    result = {"arxiv_id": bare, "title": data.get("title"), "year": data.get("year"),
+              "citation_count": data.get("citationCount"),
+              "influential_citation_count": data.get("influentialCitationCount"),
+              "retrieved_at": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+              "source": "semantic_scholar"}
+    _S2_CACHE[bare] = (result, time.time())
+    return result
+
+
+def _norm_title(text: str) -> str:
+    text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
+    return " ".join(t for t in re.split(r"[^a-z0-9]+", text.lower().replace("×", "x")) if t)
+
+
+def _similarity(a: str, b: str) -> float:
+    """Best of: whole titles, or the parts before a colon (students often drop the subtitle)."""
+    full = difflib.SequenceMatcher(None, _norm_title(a), _norm_title(b)).ratio()
+    head = difflib.SequenceMatcher(None, _norm_title(a.split(":")[0]), _norm_title(b.split(":")[0])).ratio()
+    return max(full, head)
+
+
+@tool
+def check_citation(title: str, first_author: str | None = None, year: int | None = None) -> dict:
+    """Verify a reference before repeating or correcting it: fuzzy-match the title against the
+    catalogue, then compare the first author's surname and the year. verdict is "verified",
+    "mismatch" (the paper exists but a detail differs; see mismatches) or "unverified" (no close
+    title in the catalogue: say you could not verify it, do not call it fabricated). Use the
+    returned arxiv_id with get_paper, format_citation or get_citation_count."""
+    records = {**CATALOGUE, **_LIVE}
+    best_score, best = max(((_similarity(title, p["title"]), p) for p in records.values()), key=lambda s: s[0])
+    if best_score < 0.85 and _live():
+        try:
+            for p in arxiv_client.search(title, 3):
+                _LIVE[p["arxiv_id"]] = p
+                if (s := _similarity(title, p["title"])) > best_score:
+                    best_score, best = s, p
+        except Exception:
+            pass                                          # unreachable arXiv: fall through to unverified
+    if best_score < 0.85:
+        return {"verdict": "unverified", "title_similarity": round(best_score, 2),
+                "closest_title": best["title"], "closest_arxiv_id": best["arxiv_id"],
+                "note": "no close title in the catalogue; could not verify this reference"}
+    mismatches = []
+    if first_author:
+        tokens = re.sub(r"\bet\s+al\.?", "", first_author, flags=re.I).replace(",", " ").split()
+        if tokens and _norm_title(tokens[-1]) != _norm_title(best["authors"][0].split()[-1]):
+            mismatches.append({"field": "first_author", "given": first_author, "catalogue": best["authors"][0]})
+    if year is not None and year != best["year"]:
+        mismatches.append({"field": "year", "given": year, "catalogue": best["year"],
+                           "note": "the catalogue year is the arXiv submission year, not the venue year"})
+    return {"verdict": "mismatch" if mismatches else "verified", "arxiv_id": best["arxiv_id"],
+            "catalogue_title": best["title"], "catalogue_first_author": best["authors"][0],
+            "catalogue_year": best["year"], "title_similarity": round(best_score, 2), "mismatches": mismatches}
+
+
+TOOLS = [search_papers, get_paper, format_citation, get_citation_count, check_citation]

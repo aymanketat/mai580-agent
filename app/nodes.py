@@ -112,17 +112,16 @@ from app.tools import TOOLS  # noqa: E402  (tools import no model, so this stays
 model_with_tools = model.bind_tools(TOOLS)
 
 
+AGENT_PROMPT = SystemMessage(
+    ASSISTANT + "Use the tools for every paper fact (authors, years, arXiv ids, abstracts) and for "
+    "every citation; never answer those from memory. check_citation verifies a reference the student "
+    "quotes; get_citation_count gives impact. Find the arxiv_id first, then call the tools that need "
+    "it. Copy citations verbatim. If a tool returns an error, say what could not be retrieved instead "
+    "of guessing. When you have what you need, answer; do not repeat a call with the same arguments."
+)
+
+
 def agent(state: State) -> dict:
-    system = SystemMessage(
-        ASSISTANT + "Use the tools for every paper fact (authors, years, arXiv ids, abstracts) and "
-        "for every citation; never answer those from memory. Answer directly only for general concepts."
-    )
-    return {"messages": [model_with_tools.invoke([system] + state["messages"])]}
-
-
-def final_answer(state: State) -> dict:
-    system = SystemMessage(
-        ASSISTANT + "Answer the student from the tool results above. Copy citations verbatim. "
-        "If a tool returned an error, say what could not be retrieved instead of guessing."
-    )
-    return {"messages": [model.invoke([system] + state["messages"])]}
+    # Stage 5: the same node now also sees the ToolMessages from earlier rounds and decides
+    # whether to call more tools or to answer (the final_answer node is gone).
+    return {"messages": [model_with_tools.invoke([AGENT_PROMPT] + state["messages"])]}

@@ -16,7 +16,8 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")   # author names are 
 
 from langchain_core.callbacks import UsageMetadataCallbackHandler   # noqa: E402
 from langchain_core.messages import HumanMessage          # noqa: E402
-from app.graph import build_graph                         # noqa: E402
+from langgraph.errors import GraphRecursionError          # noqa: E402
+from app.graph import RECURSION_LIMIT, STEP_BUDGET_MESSAGE, build_graph   # noqa: E402
 
 
 def run_one(graph, text: str) -> dict:
@@ -25,16 +26,19 @@ def run_one(graph, text: str) -> dict:
     # state field (Stage 2) or build a fresh AIMessage carry no usage_metadata.
     usage_cb = UsageMetadataCallbackHandler()
     t0 = time.perf_counter()
-    final = None
-    for update in graph.stream({"messages": [HumanMessage(text)]}, stream_mode="updates",
-                               config={"callbacks": [usage_cb]}):
-        node, payload = next(iter(update.items()))
-        nodes.append(node)
-        for m in (payload or {}).get("messages", []):
-            for call in getattr(m, "tool_calls", []) or []:
-                tool_calls.append({"name": call["name"], "args": call["args"]})
-            if m.type == "ai" and m.content:
-                final = m.content
+    final, budget_exceeded = None, False
+    try:
+        for update in graph.stream({"messages": [HumanMessage(text)]}, stream_mode="updates",
+                                   config={"callbacks": [usage_cb], "recursion_limit": RECURSION_LIMIT}):
+            node, payload = next(iter(update.items()))
+            nodes.append(node)
+            for m in (payload or {}).get("messages", []):
+                for call in getattr(m, "tool_calls", []) or []:
+                    tool_calls.append({"name": call["name"], "args": call["args"]})
+                if m.type == "ai" and m.content:
+                    final = m.content
+    except GraphRecursionError:                           # Stage 5: the step budget ran out
+        final, budget_exceeded = STEP_BUDGET_MESSAGE, True
     usage = usage_cb.usage_metadata.values()           # one entry per model name
     return {
         "answer": final,
@@ -43,6 +47,7 @@ def run_one(graph, text: str) -> dict:
                    "output": sum(u["output_tokens"] for u in usage)},
         "nodes": nodes,
         "tool_calls": tool_calls,
+        "budget_exceeded": budget_exceeded,
     }
 
 
