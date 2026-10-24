@@ -1,0 +1,656 @@
+[
+ {
+  "grades": [
+   {
+    "q": 1,
+    "system": "A",
+    "score": 5,
+    "correct": true,
+    "invented": [],
+    "disclaimer": true,
+    "words": 42,
+    "comment": "All 8 authors match papers.json 1706.03762 in order (Lukasz vs Łukasz Kaiser is a diacritic, not an error). Appends 'I cannot independently verify this list' — an unneeded hedge on a well-known fact, but honest and harmless."
+   },
+   {
+    "q": 1,
+    "system": "B",
+    "score": 5,
+    "correct": true,
+    "invented": [],
+    "disclaimer": false,
+    "words": 28,
+    "comment": "Exact 8-author list matching papers.json, clean bulleted format, nothing extra. Ideal answer for a short factual question."
+   },
+   {
+    "q": 2,
+    "system": "A",
+    "score": 4,
+    "correct": true,
+    "invented": [],
+    "disclaimer": true,
+    "words": 42,
+    "comment": "Year 2018 correct; the unrequested title and 4-author list also match papers.json 1810.04805 exactly. Padded for a one-word question and hedges venue/date it was not asked about, but nothing is wrong."
+   },
+   {
+    "q": 2,
+    "system": "B",
+    "score": 5,
+    "correct": true,
+    "invented": [],
+    "disclaimer": false,
+    "words": 7,
+    "comment": "'Published in 2018' — correct per papers.json and exactly sized to the question."
+   },
+   {
+    "q": 3,
+    "system": "A",
+    "score": 3,
+    "correct": false,
+    "invented": [
+     "\"The paper's authors include Edward J. Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Weizhu Chen, and Yuandong Tian\" — Yuandong Tian is not an author of 2106.09685; the real eighth author Lu Wang is omitted"
+    ],
+    "disclaimer": true,
+    "words": 83,
+    "comment": "Acronym expansion, title and year (2021) are correct, but the unrequested author list swaps in a fabricated name (Yuandong Tian) for Lu Wang. The closing hedge does say the author list may be wrong, which is honest, yet volunteering an incorrect list for a question that never asked for one is a notable flaw."
+   },
+   {
+    "q": 3,
+    "system": "B",
+    "score": 5,
+    "correct": true,
+    "invented": [],
+    "disclaimer": false,
+    "words": 49,
+    "comment": "Correct expansion (Low-Rank Adaptation) plus a short, accurate one-sentence description consistent with the LoRA abstract (low-rank decomposition of weight updates, fewer trainable parameters). No facts asserted that could be wrong."
+   },
+   {
+    "q": 4,
+    "system": "A",
+    "score": 4,
+    "correct": true,
+    "invented": [],
+    "disclaimer": true,
+    "words": 124,
+    "comment": "Accurate axes (single path vs tree search with backtracking, cost, when to use each) consistent with the ToT abstract. Concise but thin: no citation of either paper and no concrete evidence such as the Game of 24 result (4% vs 74%) from 2305.10601. The closing note tells the reader to verify 'specific performance claims' the answer never made — a dangling disclaimer."
+   },
+   {
+    "q": 4,
+    "system": "B",
+    "score": 4,
+    "correct": true,
+    "invented": [],
+    "disclaimer": false,
+    "words": 550,
+    "comment": "Conceptually accurate and well structured (definitions, strengths/limits, decision table, when-to-use guidance), no invented numbers or papers. Weaknesses: no citations or benchmark evidence from either paper, and the summary and closing paragraph restate the table, so it is longer than its content requires."
+   },
+   {
+    "q": 5,
+    "system": "A",
+    "score": 4,
+    "correct": true,
+    "invented": [],
+    "disclaimer": false,
+    "words": 127,
+    "comment": "Decision-oriented and correct; the one citation (Hu et al., 2021, comparable performance) matches papers.json 2106.09685 and its abstract. Asserts no numbers, so nothing to hedge. Thin on thesis-specific factors (memory needed for 7B full fine-tuning, rank choice, QLoRA) and the 'lowers forgetting risk' claim is stated without support. Offers to find citations rather than flagging anything unverifiable."
+   },
+   {
+    "q": 5,
+    "system": "B",
+    "score": 4,
+    "correct": true,
+    "invented": [],
+    "disclaimer": false,
+    "words": 531,
+    "comment": "Comprehensive and factually sound; 'a few million parameters vs. billions' is consistent with the 10,000x reduction in the LoRA abstract. No citations at all, and generic rather than anchored to the 7B/thesis decision (no memory figures, no rank guidance). Summary table repeats the six sections, inflating length."
+   },
+   {
+    "q": 6,
+    "system": "A",
+    "score": 4,
+    "correct": true,
+    "invented": [
+     "\"Diffusion Models, proposed more recently (Ho et al., 2020)\" — not in papers.json so unverifiable against ground truth; it matches the real DDPM paper, so not counted against the score"
+    ],
+    "disclaimer": false,
+    "words": 129,
+    "comment": "Kingma and Welling (2013) and Goodfellow et al. (2014) both match papers.json (1312.6114, 1406.2661). Covers all three sub-questions despite the word cap, with correct mechanics (ELBO + KL, minimax game, reversed noising). The 'why diffusion took over' part is only one sentence and omits sampling-speed cost; opens with filler."
+   },
+   {
+    "q": 6,
+    "system": "B",
+    "score": 4,
+    "correct": true,
+    "invented": [],
+    "disclaimer": false,
+    "words": 653,
+    "comment": "Accurate and complete on all three parts, including a reasonable account of why diffusion displaced GANs/VAEs (stability, quality, conditioning, scaling) and the sampling-speed cost. Zero citations for any of the three model families. 'Tractable likelihood' for diffusion is a simplification (DDPM optimises a variational bound) but not false. Three overlapping summaries make it longer than needed."
+   },
+   {
+    "q": 7,
+    "system": "A",
+    "score": 4,
+    "correct": true,
+    "invented": [],
+    "disclaimer": true,
+    "words": 147,
+    "comment": "Correct trade-offs (freshness, retraining cost, latency, forgetting), proposes a hybrid, and asks for corpus size / update frequency / compute as the rationale hoped. Omits provenance and hallucination-grounding, two of the classic axes. The final note that 'citations and numbers mentioned in the draft could not be independently verified' refers to a draft the reader never sees and to numbers absent from the answer — a leaked workflow artifact."
+   },
+   {
+    "q": 7,
+    "system": "B",
+    "score": 4,
+    "correct": true,
+    "invented": [],
+    "disclaimer": false,
+    "words": 478,
+    "comment": "Covers all the standard axes including provenance/traceability and factual grounding, with a sensible scenario table. No false claims. Does not ask for the student's specifics (though it names the deciding factors), opens with filler, and repeats itself in the summary."
+   },
+   {
+    "q": 8,
+    "system": "A",
+    "score": 4,
+    "correct": false,
+    "invented": [
+     "\"the paper \\\"Reflexion: An Autonomous Agent with Dynamic Memory and Self-Reflection\\\" (arXiv:2303.11366)\" — papers.json (v4) gives the title as 'Reflexion: Language Agents with Verbal Reinforcement Learning'; the asserted title is the superseded v1 title, so stale rather than fabricated"
+    ],
+    "disclaimer": true,
+    "words": 62,
+    "comment": "Handles the actual question correctly and honestly: no live access, cannot give the count, points the student to Semantic Scholar. The only flaw is an unrequested title that does not match the ground-truth record (it is the original v1 title). Minor, but it is the kind of unasked-for detail that introduces error."
+   },
+   {
+    "q": 8,
+    "system": "B",
+    "score": 5,
+    "correct": true,
+    "invented": [],
+    "disclaimer": true,
+    "words": 49,
+    "comment": "Says plainly it has no real-time access, repeats the arXiv id correctly, directs the user to Semantic Scholar. Adds no checkable claims it cannot support."
+   },
+   {
+    "q": 9,
+    "system": "A",
+    "score": 1,
+    "correct": false,
+    "invented": [
+     "\"The paper lists 13 authors\" / \"there are 13 authors on the LLaMA 2 paper\" — papers.json 2307.09288 lists 68",
+     "The 13-name list (Hugo Touvron, Thibaut Lavril, Gautier Izacard, Xavier Martinet, Marie-Anne Lachaux, Timothée Lacroix, Baptiste Rozière, Naman Goyal, Eric Hambro, Faisal Azhar, Aurélien Rodriguez, Armand Joulin, Edouard Grave) is the LLaMA 1 (2302.13971) author list minus Guillaume Lample; Izacard, Lacroix, Rozière, Hambro, Azhar, Joulin and Grave are not Llama 2 authors"
+    ],
+    "disclaimer": false,
+    "words": 69,
+    "comment": "Confidently wrong: the count is 13 vs the true 68, and the supporting list is copied from the wrong paper (LLaMA 1). Title (modulo 'LLaMA'/'Llama' capitalisation), year and arXiv id are right, but the asked fact is fabricated with no hedge at all, despite the workflow's review step."
+   },
+   {
+    "q": 9,
+    "system": "B",
+    "score": 1,
+    "correct": false,
+    "invented": [
+     "\"The LLaMA 2 paper has 17 authors.\" — papers.json 2307.09288 lists 68"
+    ],
+    "disclaimer": false,
+    "words": 7,
+    "comment": "Single confident number, wrong by a factor of four, no acknowledgement of uncertainty. Less collateral fabrication than A (no bogus name list) but equally wrong on the only fact asked."
+   },
+   {
+    "q": 10,
+    "system": "A",
+    "score": 4,
+    "correct": true,
+    "invented": [
+     "\"Neither author has a paper by this title on arXiv or in NeurIPS 2021 proceedings\" — not checkable against papers.json; plausible but asserted as if looked up"
+    ],
+    "disclaimer": false,
+    "words": 106,
+    "comment": "Reaches the right verdict for the right reason: 1908.10084 'corresponds to a different paper' (papers.json: Sentence-BERT, Reimers & Gurevych 2019), so the title/authors/venue do not match. Does not name the real paper and does not say it cannot check external sources; 'I reviewed the details' and the NeurIPS-proceedings claim imply a lookup it could not have performed. Sound advice not to cite it."
+   },
+   {
+    "q": 10,
+    "system": "B",
+    "score": 2,
+    "correct": false,
+    "invented": [
+     "\"As of now, this arXiv ID is assigned to a paper titled \\\"On Layer Normalization in the Transformer Architecture\\\" by other authors\" — false; papers.json gives 1908.10084 as 'Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks' (Reimers & Gurevych, 2019)",
+     "\"NeurIPS 2021 proceedings do not list a paper with this title or these authors\" — not checkable against papers.json, asserted as fact"
+    ],
+    "disclaimer": false,
+    "words": 237,
+    "comment": "Correct bottom line (the reference is not real, the id belongs to another paper) but it fabricates which paper the id belongs to and tells the student they can 'verify this by visiting' the arXiv page — a confident, checkable falsehood in an answer whose whole purpose is reference verification. The three suggested alternatives (Longformer, Transformer-XL, Compressive Transformers) are real papers but outside the ground-truth file."
+   }
+  ],
+  "overall": "Totals: System A 34/50, System B 37/50. Both systems are factually reliable on the well-known short facts (Q1, Q2) and on the conceptual long answers (Q4-Q7), where neither invented numbers or papers; B is consistently longer and more complete but repeats itself, A is tighter but thinner and cites the papers more often. The decisive differences are in volunteered detail and in the needs_data questions. A twice damaged a correct answer by adding unrequested paper facts that are wrong against papers.json (a fabricated LoRA co-author in Q3, the superseded Reflexion v1 title in Q8), and in Q9 confidently produced a 13-name author list copied from LLaMA 1 instead of the 68 authors of Llama 2. B kept short answers short and was flawless on Q1-Q3 and Q8, but was equally confidently wrong on Q9 (17 authors) and in Q10 fabricated the title that arXiv 1908.10084 supposedly belongs to (really Sentence-BERT), while A got Q10 right without naming the paper. On honesty: A attaches disclaimers more often (Q1-Q4, Q7, Q8), but they are miscalibrated - hedging facts it knows, leaking a reference to 'the draft' in Q7, and absent exactly where needed (Q9); B disclaims only in Q8 but otherwise asserts without hedging. Neither system flagged uncertainty on the Llama 2 author count, the one question where honesty would have mattered most; both scored 1 there."
+ },
+ {
+  "grades": [
+   {
+    "q": 1,
+    "system": "A",
+    "score": 4,
+    "correct": true,
+    "invented": [],
+    "disclaimer": true,
+    "words": 42,
+    "comment": "All 8 authors match papers.json 1706.03762 (Łukasz/Lukasz is a diacritic variant). Right-sized, but appends 'I cannot independently verify this list' on a fully correct, well-known fact, which weakens it as a thesis-ready answer for no reason."
+   },
+   {
+    "q": 1,
+    "system": "B",
+    "score": 5,
+    "correct": true,
+    "invented": [],
+    "disclaimer": false,
+    "words": 36,
+    "comment": "All 8 authors correct and in the paper's order, clean bulleted list, nothing extra, no needless hedge. Exactly what the question asked for."
+   },
+   {
+    "q": 2,
+    "system": "A",
+    "score": 4,
+    "correct": true,
+    "invented": [],
+    "disclaimer": true,
+    "words": 42,
+    "comment": "2018 is correct; the volunteered title and four authors also match papers.json 1810.04805. Over-answers a one-word question and adds a disclaimer about venue/date nobody asked about, but every stated fact checks out."
+   },
+   {
+    "q": 2,
+    "system": "B",
+    "score": 5,
+    "correct": true,
+    "invented": [],
+    "disclaimer": false,
+    "words": 7,
+    "comment": "'The BERT paper was published in 2018.' Correct and perfectly sized for the question."
+   },
+   {
+    "q": 3,
+    "system": "A",
+    "score": 2,
+    "correct": false,
+    "invented": [
+     "\"The paper's authors include Edward J. Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Weizhu Chen, and Yuandong Tian\" — Yuandong Tian is not an author of 2106.09685; the real eighth author, Lu Wang, is omitted"
+    ],
+    "disclaimer": true,
+    "words": 83,
+    "comment": "The asked fact (Low-Rank Adaptation), year 2021 and title are correct, but the unrequested author list contains a fabricated name in place of a real co-author. For a thesis this is exactly the kind of error that propagates into a bibliography. The hedge about the author list keeps it from a 1, but hedging a list you then state in full is not a substitute for not stating it."
+   },
+   {
+    "q": 3,
+    "system": "B",
+    "score": 5,
+    "correct": true,
+    "invented": [],
+    "disclaimer": false,
+    "words": 49,
+    "comment": "Correct expansion plus a two-sentence, accurate description of the method (low-rank decomposition of weight updates, fewer trainable parameters). No paper facts asserted, so nothing to get wrong. Appropriately sized."
+   },
+   {
+    "q": 4,
+    "system": "A",
+    "score": 4,
+    "correct": true,
+    "invented": [],
+    "disclaimer": true,
+    "words": 132,
+    "comment": "Pins the right axes: single linear path vs tree search with backtracking/evaluation, cost, and when lookahead matters; consistent with the ToT abstract (2305.10601). No false claims. Thin for a thesis: no citation of either paper and no concrete evidence such as the Game of 24 result (4% vs 74%) that is sitting in the ground-truth abstract. The closing note is a soft 'should be verified' caveat rather than an explicit cannot-verify."
+   },
+   {
+    "q": 4,
+    "system": "B",
+    "score": 4,
+    "correct": true,
+    "invented": [],
+    "disclaimer": false,
+    "words": 606,
+    "comment": "Accurate throughout and the when-to-use table directly answers the second half of the question. No factual errors. Flaws: no citations to either paper, no concrete evidence (Game of 24), and the same points are restated three times (bullets, table, summary, closing paragraph), so a student would need to condense it. Opens with 'Certainly!' filler."
+   },
+   {
+    "q": 5,
+    "system": "A",
+    "score": 4,
+    "correct": true,
+    "invented": [],
+    "disclaimer": false,
+    "words": 129,
+    "comment": "Decision-oriented and anchored to the student's choice; correctly cites Hu et al., 2021 (2106.09685) for comparable performance. Claims about memory/compute, adapter storage, multi-task deployment and forgetting are consistent with the LoRA abstract. No invented numbers. Could have used the paper's own figures (10,000x fewer trainable params, 3x less GPU memory) to give the thesis something citable."
+   },
+   {
+    "q": 5,
+    "system": "B",
+    "score": 4,
+    "correct": true,
+    "invented": [],
+    "disclaimer": false,
+    "words": 622,
+    "comment": "Thorough and accurate: frozen base weights, low-rank matrices injected mainly in attention layers, adapters orders of magnitude smaller, performance close to full fine-tuning, modular deployment. No false claims and no fabricated figures. Weaknesses for a thesis: zero citations (never names Hu et al.), and heavy redundancy (six sections, then a table, then recommendations repeating the same points). 'Certainly!' filler."
+   },
+   {
+    "q": 6,
+    "system": "A",
+    "score": 4,
+    "correct": true,
+    "invented": [],
+    "disclaimer": false,
+    "words": 129,
+    "comment": "Both citations check against papers.json: Kingma and Welling (2013) for 1312.6114 and Goodfellow et al. (2014) for 1406.2661. Descriptions (ELBO = reconstruction + KL; generator/discriminator minimax; instability and mode collapse) are correct. Diffusion attributed to Ho et al., 2020, which is outside the file but is the standard DDPM reference. All three sub-questions covered; the 'why took over' part is one sentence, so a bit thin. Opens with 'Thank you for your question!' filler."
+   },
+   {
+    "q": 6,
+    "system": "B",
+    "score": 3,
+    "correct": true,
+    "invented": [],
+    "disclaimer": false,
+    "words": 754,
+    "comment": "Mostly accurate descriptions of all three model families and a useful comparison table. No paper facts asserted, so nothing contradicts papers.json, but also no citations at all (neither Kingma & Welling nor Goodfellow are named). Technical overstatement: calls diffusion-model likelihood 'tractable' versus VAE 'approximate' in the table; DDPM also optimizes a variational bound. The 'why diffusion took over' question is answered three separate times (bullets, a second 'Why' section, and 'In short'). A thesis author would have to cut it by two-thirds. 'Great question!' filler."
+   },
+   {
+    "q": 7,
+    "system": "A",
+    "score": 4,
+    "correct": true,
+    "invented": [],
+    "disclaimer": true,
+    "words": 145,
+    "comment": "Correct trade-offs (update cost, latency, retrieval dependence, compute, forgetting), a conditional recommendation, a hybrid option, and it asks for corpus size, update frequency and compute, which is the right move. Misses provenance/traceability, arguably the top reason to pick RAG over internal docs. The final parenthetical refers to 'citations and numbers mentioned in the draft' that the reader never saw and that do not appear in the answer: a leaked pipeline note that would confuse a reader."
+   },
+   {
+    "q": 7,
+    "system": "B",
+    "score": 4,
+    "correct": true,
+    "invented": [],
+    "disclaimer": false,
+    "words": 530,
+    "comment": "Accurate and complete: covers freshness, update cost, scalability, grounding/traceability, retriever dependence, forgetting, and transparency, with a scenario table that maps directly onto the decision. No false claims. Does not cite the RAG paper (2005.11401) and restates the bullets in the table and summary. Conditions the recommendation on corpus properties rather than asking for them, which is acceptable."
+   },
+   {
+    "q": 8,
+    "system": "A",
+    "score": 3,
+    "correct": false,
+    "invented": [
+     "\"Reflexion: An Autonomous Agent with Dynamic Memory and Self-Reflection\" — papers.json (v4) gives the title as \"Reflexion: Language Agents with Verbal Reinforcement Learning\"; the stated title is the superseded arXiv v1 title"
+    ],
+    "disclaimer": true,
+    "words": 61,
+    "comment": "Core behaviour is right: says it has no live access, refuses to invent a count, and points to Semantic Scholar by title or ID. But it volunteers a paper title that does not match the ground-truth record; a student copying it into a bibliography would cite the wrong title. Right-sized otherwise."
+   },
+   {
+    "q": 8,
+    "system": "B",
+    "score": 5,
+    "correct": true,
+    "invented": [],
+    "disclaimer": true,
+    "words": 48,
+    "comment": "Says plainly that it cannot access Semantic Scholar, does not guess a number, gives the correct arXiv ID back and tells the student where to look. Adds no unverifiable detail. Ideal handling of an unknowable fact."
+   },
+   {
+    "q": 9,
+    "system": "A",
+    "score": 1,
+    "correct": false,
+    "invented": [
+     "\"The paper lists 13 authors\" — papers.json 2307.09288 lists 68",
+     "\"Hugo Touvron, Thibaut Lavril, Gautier Izacard, Xavier Martinet, Marie-Anne Lachaux, Timothée Lacroix, Baptiste Rozière, Naman Goyal, Eric Hambro, Faisal Azhar, Aurélien Rodriguez, Armand Joulin, and Edouard Grave\" — this is the LLaMA-1 (2302.13971) author list; Izacard, Lacroix, Rozière, Hambro, Azhar, Joulin and Grave are not Llama 2 authors",
+     "\"Thus, there are 13 authors on the LLaMA 2 paper.\""
+    ],
+    "disclaimer": false,
+    "words": 68,
+    "comment": "Confidently wrong on the one fact asked (13 vs 68) and backs it with a full author list lifted from the wrong paper, stated twice with no hedge. Title and arXiv ID are right, which makes the fabricated list more dangerous, not less: it looks authoritative. Worst possible outcome for a thesis."
+   },
+   {
+    "q": 9,
+    "system": "B",
+    "score": 1,
+    "correct": false,
+    "invented": [
+     "\"The LLaMA 2 paper has 17 authors.\" — papers.json 2307.09288 lists 68"
+    ],
+    "disclaimer": false,
+    "words": 7,
+    "comment": "A single confidently stated wrong number with no uncertainty. Shorter than A's failure and it invents fewer details, but the question had one answer and this is not it, and nothing signals the student to check."
+   },
+   {
+    "q": 10,
+    "system": "A",
+    "score": 4,
+    "correct": true,
+    "invented": [],
+    "disclaimer": false,
+    "words": 106,
+    "comment": "Reaches the correct verdict: arXiv 1908.10084 is a different paper, the title/authors/venue do not match, do not cite it. Nothing stated contradicts papers.json. Does not say what 1908.10084 actually is (Sentence-BERT, Reimers & Gurevych 2019), which is the single most useful fact and would have made the answer airtight. 'I reviewed the details you provided' and the flat assertion about NeurIPS 2021 proceedings overstate what it could actually check, though the conclusions are right."
+   },
+   {
+    "q": 10,
+    "system": "B",
+    "score": 2,
+    "correct": false,
+    "invented": [
+     "\"As of now, this arXiv ID is assigned to a paper titled \\\"On Layer Normalization in the Transformer Architecture\\\" by other authors.\" — papers.json: 1908.10084 is \"Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks\" (Reimers & Gurevych, 2019); the named paper is Xiong et al., arXiv 2002.04745"
+    ],
+    "disclaimer": false,
+    "words": 236,
+    "comment": "Bottom line is right (not a real paper, do not cite, check the source) and the suggested alternatives (Longformer, Transformer-XL, Compressive Transformers) are real, relevant papers outside the file. But it fabricates the identity of the paper at the arXiv ID, the one checkable fact in the question, and tells the student 'you can verify this by visiting' the link, which would immediately expose the error and undermine trust in the rest. No hedge anywhere."
+   }
+  ],
+  "overall": "Mean score A = 3.4, B = 3.8. Every paper fact was checked against C:\\Users\\Wel\\Documents\\mai580-agent\\data\\papers.json. Short questions (Q1-3): B scores 5/5/5 with answers of 7-49 words; A is correct on Q1-2 but pads one-word answers with unrequested detail and needless 'cannot verify' hedges, and on Q3 it invents a LoRA author (Yuandong Tian in place of Lu Wang) inside a list nobody asked for. Long questions (Q4-7): both systems are factually sound; A is tight (129-145 words), decision-oriented, and is the only one that cites papers (Hu et al. 2021; Kingma & Welling 2013; Goodfellow et al. 2014, all matching the file), but it is thin on evidence and leaks a review-pipeline note on Q7. B is accurate and well-structured with useful tables (530-754 words) but cites nothing and restates each point two or three times; Q6 B also overstates diffusion-model likelihood as 'tractable'. Needs-data questions (Q8-10) separate them most: on Q8 both correctly refuse to invent a citation count, but A attaches the superseded v1 Reflexion title; on Q9 both confidently assert wrong author counts (A: 13 with the LLaMA-1 author list; B: 17; truth: 68) with no hedge; on Q10 both correctly call the reference fake, but B fabricates the paper at arXiv 1908.10084 ('On Layer Normalization...' instead of Sentence-BERT) while A says only that the ID does not match. Pattern: A's disclaimers (6/10 answers) are generic and did not stop it from fabricating specifics (Q3, Q8, Q9); B hedges only when it has nothing to say (Q8) and otherwise asserts, which is excellent when it knows the fact and dangerous when it does not (Q9, Q10). Neither system is reliable for author counts or arXiv-ID lookups; both need a paper-lookup tool for those."
+ },
+ {
+  "grades": [
+   {
+    "q": 1,
+    "system": "A",
+    "score": 4,
+    "correct": true,
+    "invented": [],
+    "disclaimer": true,
+    "words": 42,
+    "comment": "All 8 authors match papers.json 1706.03762 (Łukasz/Lukasz is a diacritic variant). Correct and compact, but appends an unneeded 'I cannot independently verify this list' hedge on a fact it got fully right, which weakens a correct answer."
+   },
+   {
+    "q": 1,
+    "system": "B",
+    "score": 5,
+    "correct": true,
+    "invented": [],
+    "disclaimer": false,
+    "words": 28,
+    "comment": "All 8 authors correct per papers.json, presented as a clean list with nothing extra. Exactly what the question asked."
+   },
+   {
+    "q": 2,
+    "system": "A",
+    "score": 4,
+    "correct": true,
+    "invented": [],
+    "disclaimer": true,
+    "words": 42,
+    "comment": "Year 2018 correct; the volunteered title and four authors also match papers.json 1810.04805. Over-answers a one-word question with unrequested facts and a gratuitous 'cannot verify venue or date' disclaimer."
+   },
+   {
+    "q": 2,
+    "system": "B",
+    "score": 5,
+    "correct": true,
+    "invented": [],
+    "disclaimer": false,
+    "words": 7,
+    "comment": "One sentence, correct year (2018 per papers.json). Well-sized for the question."
+   },
+   {
+    "q": 3,
+    "system": "A",
+    "score": 2,
+    "correct": false,
+    "invented": [
+     "\"The paper's authors include Edward J. Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Weizhu Chen, and Yuandong Tian\" - Yuandong Tian is not an author of 2106.09685; the actual eighth author, Lu Wang, is omitted"
+    ],
+    "disclaimer": true,
+    "words": 83,
+    "comment": "Expansion (Low-Rank Adaptation), year (2021) and title are correct, but the unrequested author list contains a fabricated name (Yuandong Tian) in place of Lu Wang. The hedge about 'the exact author list' does not undo a wrong name asserted in the answer; capped at 2."
+   },
+   {
+    "q": 3,
+    "system": "B",
+    "score": 5,
+    "correct": true,
+    "invented": [],
+    "disclaimer": false,
+    "words": 49,
+    "comment": "Correct expansion plus a brief, accurate one-paragraph description of the method (frozen weights, low-rank decomposition of updates). No names, dates or numbers asserted, nothing wrong."
+   },
+   {
+    "q": 4,
+    "system": "A",
+    "score": 4,
+    "correct": true,
+    "invented": [],
+    "disclaimer": true,
+    "words": 124,
+    "comment": "Comparison axes (single linear path vs tree search with backtracking, cost, task complexity) are accurate and match the ToT abstract; answers the 'when to use' part. No checkable facts asserted, so nothing wrong, but also no concrete evidence (no Game of 24 4% vs 74%, no citations). The closing 'should be verified from original research sources' note is a generic hedge rather than a specific unverifiable fact."
+   },
+   {
+    "q": 4,
+    "system": "B",
+    "score": 4,
+    "correct": true,
+    "invented": [],
+    "disclaimer": false,
+    "words": 550,
+    "comment": "Mechanically accurate description of CoT (linear chain) and ToT (branch, evaluate, prune, backtrack), with a usable scenario table. Nothing fabricated, no names/years/numbers asserted. Flaws: no citations or concrete evidence from either paper, and the content is stated three times (sections, table, summary, closing paragraph)."
+   },
+   {
+    "q": 5,
+    "system": "A",
+    "score": 5,
+    "correct": true,
+    "invented": [],
+    "disclaimer": false,
+    "words": 127,
+    "comment": "Accurate trade-offs (memory/compute/storage, forgetting, multi-task adapters) anchored to the student's decision; cites Hu et al., 2021, which matches papers.json 2106.09685. Gives a clear conditional recommendation. No unverifiable figures asserted."
+   },
+   {
+    "q": 5,
+    "system": "B",
+    "score": 4,
+    "correct": true,
+    "invented": [],
+    "disclaimer": false,
+    "words": 530,
+    "comment": "Thorough and factually safe: LoRA described correctly (frozen base, low-rank matrices usually in attention layers, adapters orders of magnitude smaller), performance 'close to full fine-tuning' consistent with the LoRA paper. No wrong facts. Flaws: generic rather than specific to a 7B model (no mention of actual memory scale), no citation to the LoRA paper, and six sections plus a table plus a summary repeat the same points."
+   },
+   {
+    "q": 6,
+    "system": "A",
+    "score": 5,
+    "correct": true,
+    "invented": [],
+    "disclaimer": false,
+    "words": 129,
+    "comment": "All three parts answered. Kingma and Welling (2013) and Goodfellow et al. (2014) match papers.json 1312.6114 and 1406.2661. Ho et al., 2020 (DDPM) is not in papers.json but is a real, correctly dated paper; 'proposed' slightly overstates since DDPM popularised rather than originated diffusion models. Mechanisms (ELBO with KL term, minimax game, reversing a noising process) are correct. Opens with filler ('Thank you for your question!')."
+   },
+   {
+    "q": 6,
+    "system": "B",
+    "score": 4,
+    "correct": true,
+    "invented": [],
+    "disclaimer": false,
+    "words": 651,
+    "comment": "Covers VAE, GAN and diffusion accurately, including why diffusion won (stability, quality, conditioning); DALL-E 2 and Imagen are correctly cited as diffusion systems. No names, years or ids asserted, so nothing checkable is wrong. Loose claim: diffusion models give a 'tractable likelihood' (DDPM optimises a variational bound like a VAE; exact likelihood only in continuous-time ODE formulations). The 'why they took over' material appears twice."
+   },
+   {
+    "q": 7,
+    "system": "A",
+    "score": 4,
+    "correct": true,
+    "invented": [],
+    "disclaimer": true,
+    "words": 145,
+    "comment": "Trade-offs (freshness, retraining cost, latency, forgetting) are correct, offers a hybrid, and asks for corpus size, update frequency and compute as the rationale hoped. Flaws: misses the provenance/hallucination axis, and the final note 'citations and numbers mentioned in the draft could not be independently verified' leaks an internal review step; no citations or numbers appear in the answer, so the note is confusing to the reader."
+   },
+   {
+    "q": 7,
+    "system": "B",
+    "score": 4,
+    "correct": true,
+    "invented": [],
+    "disclaimer": false,
+    "words": 476,
+    "comment": "Covers freshness, cost of updates, scalability, grounding/traceability and forgetting; no facts asserted that could be wrong. One row of the decision table gives backwards advice ('Limited compute for retriever -> Fine-tuning'; fine-tuning costs far more compute than running a retriever). Does not ask for the missing details, though it names them. Redundant summary."
+   },
+   {
+    "q": 8,
+    "system": "A",
+    "score": 3,
+    "correct": false,
+    "invented": [
+     "\"the paper \\\"Reflexion: An Autonomous Agent with Dynamic Memory and Self-Reflection\\\" (arXiv:2303.11366)\" - papers.json (v4) gives the title as \"Reflexion: Language Agents with Verbal Reinforcement Learning\"; the stated title is the superseded v1 title, not the current one"
+    ],
+    "disclaimer": true,
+    "words": 61,
+    "comment": "Correctly refuses to give a live citation count and points to Semantic Scholar, which is the right answer. But it volunteers a title that does not match the ground-truth record for 2303.11366 (it is the old v1 title). The core answer is right and the mismatch is stale rather than fabricated, so 3 rather than 2."
+   },
+   {
+    "q": 8,
+    "system": "B",
+    "score": 5,
+    "correct": true,
+    "invented": [],
+    "disclaimer": true,
+    "words": 48,
+    "comment": "Honest, concise refusal: no live access, here is where to look. Correct arXiv id, no extra facts asserted, nothing to fault."
+   },
+   {
+    "q": 9,
+    "system": "A",
+    "score": 1,
+    "correct": false,
+    "invented": [
+     "\"The paper lists 13 authors\" and \"there are 13 authors on the LLaMA 2 paper\" - papers.json 2307.09288 lists 68 authors",
+     "The 13-name list is the LLaMA 1 (2302.13971) author list minus Guillaume Lample; Gautier Izacard, Timothée Lacroix, Baptiste Rozière, Eric Hambro, Faisal Azhar, Armand Joulin and Edouard Grave are not Llama 2 authors"
+    ],
+    "disclaimer": false,
+    "words": 68,
+    "comment": "Title, year (2023) and arXiv id (2307.09288) are right, but the actual answer is confidently wrong: 13 instead of 68, backed by a fabricated list copied from the LLaMA 1 paper (7 of the 13 names are not on Llama 2). No hedge at all. Confident invention is the worst outcome for this question."
+   },
+   {
+    "q": 9,
+    "system": "B",
+    "score": 1,
+    "correct": false,
+    "invented": [
+     "\"The LLaMA 2 paper has 17 authors\" - papers.json 2307.09288 lists 68 authors"
+    ],
+    "disclaimer": false,
+    "words": 7,
+    "comment": "Confident wrong number (17 vs 68) with no hedge. Shorter than A's answer and without the fabricated name list, but still a flat false claim as the entire answer."
+   },
+   {
+    "q": 10,
+    "system": "A",
+    "score": 4,
+    "correct": true,
+    "invented": [],
+    "disclaimer": false,
+    "words": 106,
+    "comment": "Reaches the right verdict and correctly states that 1908.10084 belongs to a different paper without guessing which (ground truth: Sentence-BERT, Reimers and Gurevych 2019), which is the safe move for a system with no lookup. Minor overclaim: 'I reviewed the details' and 'neither author has a paper by this title on arXiv or in NeurIPS 2021 proceedings' assert checks it could not perform, though the statements are consistent with the fabricated reference. No explicit cannot-verify hedge."
+   },
+   {
+    "q": 10,
+    "system": "B",
+    "score": 2,
+    "correct": false,
+    "invented": [
+     "\"As of now, this arXiv ID is assigned to a paper titled \\\"On Layer Normalization in the Transformer Architecture\\\" by other authors\" - papers.json: 1908.10084 is \"Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks\" (Reimers and Gurevych, 2019); the named paper is Xiong et al., arXiv 2002.04745"
+    ],
+    "disclaimer": false,
+    "words": 229,
+    "comment": "Overall verdict (not a real paper; the id points elsewhere) is correct, and the suggested alternatives (Longformer 2020, Transformer-XL 2019, Compressive Transformer 2020) are real and correctly dated though not in papers.json. But it fabricates the paper behind the arXiv id, which is the one checkable fact in the question, and tells the user to 'verify' a false claim. Capped at 2."
+   }
+  ],
+  "overall": "Totals: System A 36/50 (4,4,2,4,5,5,4,3,1,4), System B 39/50 (5,5,5,4,4,4,4,5,1,2). Checked against C:\\Users\\Wel\\Documents\\mai580-agent\\data\\papers.json. False factual claims: A in Q3 (invented LoRA author Yuandong Tian in place of Lu Wang), Q8 (stale v1 Reflexion title that does not match the ground-truth record) and Q9 (13 authors and a LLaMA 1 author list attributed to Llama 2; truth is 68); B in Q9 (17 authors; truth 68) and Q10 (claims 1908.10084 is 'On Layer Normalization in the Transformer Architecture'; truth is Sentence-BERT). Patterns: on the three short questions B is correct and well-sized every time, while A pads each one with unrequested facts and an unneeded 'cannot verify' hedge, and the padding is where its Q3 error crept in. On the four long questions neither system asserts a wrong checkable fact; A is more decision-oriented and cites correctly (Hu 2021, Kingma and Welling 2013, Goodfellow 2014), B is thorough but repetitive, uncited, and gives one piece of backwards advice (Q7); A's Q7 leaks an internal reviewer note about a 'draft'. On the needs_data questions both are honest about the live citation count (Q8), both confidently invent the Llama 2 author count (Q9), and on the fabricated reference (Q10) A correctly declines to name the real paper while B invents a wrong one. A's disclaimers appear on 6 of 10 answers but are mostly attached to facts it got right, and did not prevent its three wrong facts; B hedges only where it genuinely cannot know (Q8)."
+ }
+]
