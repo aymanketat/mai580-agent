@@ -19,7 +19,7 @@ table, and the reflection answers. Versions as pinned by the course: langgraph 1
 | 2 | `stage-02` | `analyze → generate → review` | 2 | vs Stage 1 on 10 questions: quality **3.4 vs 3.9** (blind, 3 graders), 1.9× latency, 27× input tokens; the reviewer fixes tone, not facts |
 | 3 | `stage-03` | `classify` + 5 answer nodes | 4 | routing accuracy **90% → 100%** on 20 labelled requests after rewording the `citation` description (same-set caveat) |
 | 4 | `stage-04` | router + `agent → tools → final_answer` | 7 | Stage 1's inventions answered from the catalogue (Llama 2 = 68 authors); two-round requests fail: the model writes citations itself |
-| 5 | `stage-05` | router + `agent ⇄ tools`, budget 12 | 15 | multi-step success **0/10 → 6/10** (single-step control 1/1 both), at 2.6× tool calls and 3.6× input tokens; 4 misses = Semantic Scholar rate limit |
+| 5 | `stage-05` | router + `agent ⇄ tools`, budget 12 | 15 | verified multi-step success **0/10 → 5/10** (+1 unverified; single-step control 1/1 both), at 2.8× tool calls and 3.7× input tokens; 4 misses = Semantic Scholar rate limit |
 
 "Tests passing at tag" is the whole suite as it existed at that commit, re-run from a checkout of
 each tag on 2026-10-24 (`eval/results/test_runs.md`). Stage 1 had 2 tests; its `"model"`-node
@@ -31,11 +31,18 @@ in Stage 4–5, to be hardened by retrieval in Stage 8 and validation in Stage 1
 between runs* ("My name is Sara" — Stage 6). The lexical search's off-topic hits (Stage 5) are the
 Stage 8 motivation; the redundant tool calls are the Stage 9 motivation.
 
-Artefacts: `eval/*.jsonl` (labelled question sets), `eval/results/` (every run, raw), `scripts/`
-(`run_questions.py`, `compare_results.py`, `eval_routing.py`, `compare_prebuilt.py`,
-`build_catalogue.py`), `data/papers.json` (23 arXiv records). AI tools: Claude Code was used as a
-pair-programmer for scaffolding, experiment scripts and as blind LLM graders for the Stage 2 and 5
-comparisons; every line of `app/` is explained in this note.
+Artefacts: `eval/*.jsonl` (labelled question sets), `eval/results/` (every run, raw), `eval/grading/`
+(grader prompts), `scripts/` (`run_questions.py`, `compare_results.py`, `eval_routing.py`,
+`compare_prebuilt.py`, `build_catalogue.py`), `data/papers.json` (23 arXiv records).
+
+**Contribution and AI disclosure.** The student (Ayman Ketat) selected Use Case B and is working
+through the code and results. Claude Code (Anthropic, model `claude-fable-5-1`) assisted with
+implementation, testing and documentation: it drafted the code for each stage from the tutorial's
+starter code, wrote the experiment scripts, the catalogue builder and the question sets, ran the test
+suites and the experiments, and drafted this report and the progress note. Automated checks used in
+the evidence: `pytest` (15 tests), a label-ambiguity review of the question sets and the blind
+grading of the Stage 2 and Stage 5 comparisons, all performed by Claude instances. The student's own
+review of the code and of the results is in progress and is not claimed here as complete.
 
 ---
 
@@ -169,12 +176,12 @@ as ground truth; the table shows the median (raw grades in `eval/results/stage02
 Totals are sums of the raw measurements (34.65 s and 66.41 s in `eval/results/`); the rows are
 rounded to 0.1 s, so they add to 34.7 and 66.3.
 
-**Is the workflow worth three times the calls?** Not on average: 1.9× latency, 27× input tokens
-(the draft and analysis are re-sent), 1.8× output tokens, and a *lower* mean score (3.4 vs 3.9).
-Where it helps: the fake-reference check (Q10, 2 → 4: the review step stopped the model from naming
-a wrong paper) and the four long trade-off questions, where the 120-word cap produced right-sized,
-decision-oriented answers that cite the canonical papers (same score, a quarter of the length). Where
-it hurts: short factual questions. The analyze → generate steps *add* facts nobody asked for (author
+**Cost against benefit.** On average the workflow did not pay for three times the calls: 1.9×
+latency, 27× input tokens (the draft and analysis are re-sent), 1.8× output tokens, and a lower mean
+score (3.4 against 3.9). It helped on the fake-reference check (Q10, 2 → 4: the review step stopped
+the model from naming a wrong paper) and on the four long trade-off questions, where the 120-word cap
+produced concise, decision-oriented answers that cite the canonical papers (same score, a quarter of
+the length). It hurt on short factual questions. The analyze → generate steps *add* unrequested facts (author
 lists, titles), which gives the model more chances to be wrong, and the review node adds "I cannot
 verify" disclaimers to correct answers while certifying wrong ones (Q9). The graders flagged 5
 Stage 2 answers vs 2 Stage 1 answers, but the flags mix two categories. *Contradicted by the
@@ -330,7 +337,7 @@ BibTeX output, the 68-author truncation).
 | 2 | Exact arXiv id and latest version of the VAE paper? | `search_papers` | id 1312.6114 **correct**; "latest version could not be retrieved" — the card has no version, `get_paper` would, but there is no second round (Stage 1 had invented v10) |
 | 3 | How many authors on the Llama 2 paper? | `search_papers` | **68, correct** (the card carries `author_count`); Stage 1 said 17, Stage 2 said 13 |
 | 4 | Is 'Gated Memory Compression…', arXiv 1908.10084, a real paper? | `get_paper` | **correct**: 1908.10084 is Sentence-BERT (Reimers & Gurevych, 2019); Stage 1 had named a wrong paper |
-| 5 | Citation count of *Attention Is All You Need* right now? | `search_papers` (useless) | honest "could not retrieve" — no tool for this until Stage 5 |
+| 5 | Citation count of *Attention Is All You Need* right now? | `search_papers` (not useful here) | honest "could not retrieve" — no tool for this until Stage 5 |
 | 6 | Find the paper that introduced Sentence-BERT and give me its BibTeX | `search_papers` only | id found; the BibTeX was **written by `final_answer`**, not by `format_citation` (author names from memory; correct here, but untraceable to any tool result) |
 | 7 | Look up the Reflexion paper by Shinn et al. and give me its APA citation | `search_papers` only | "Shinn, N., et al. (2023). …" — written by the model, **not valid APA 7** (no "et al." in a reference list, 8 authors dropped) |
 
@@ -447,68 +454,104 @@ low, and the claim counts below were re-derived by hand from the quoted claims a
 | 9 | Reflexion "Yao, 2023" check + count | check → count | 1 | 3 | 0/3 | 0/3 | 1377 → 3214 | S5: **unnecessary** search after `check_citation`; count rate-limited |
 | 10 | 1301.3781 → closest paper → compare counts | get_paper → search → count×2 | 2 | 6 | 0/3 | 0/3 | 1065 → 6859 | S5: two redundant searches; counts rate-limited |
 | 11 | BibTeX for 1412.6980 (single) | cite | 1 | 1 | 3/3 | 3/3 | 822 → 1761 | identical |
-| **multi-step, requests 1–10** | | | **13** | **36** | **0/10** | **6/10** | **11 980 → 44 291** | latency 37.2 s → 50.6 s; output tokens 2 282 → 2 685 |
+| **multi-step, requests 1–10** | | | **13** | **36** | **0/10** | **6/10** (graders' verdict; see the rubric table below: 5 verified + 1 unverified) | **11 980 → 44 291** | latency 37.2 s → 50.6 s; output tokens 2 282 → 2 685 |
 | **single-step control, request 11** | | | 1 | 1 | 1/1 | 1/1 | 822 → 1 761 | identical behaviour |
 | **all 11** | | | 14 | 37 | 1/11 | 7/11 | 12 802 → 46 052 | latency 40.1 s → 53.5 s |
 
-Mean median score (1–5): multi-step requests Stage 4 **2.10**, Stage 5 **4.00**; all 11 requests
-2.36 and 4.09. All four Stage 5 failures are the live `get_citation_count` hop hitting Semantic
-Scholar's unauthenticated rate limit; the agent reported "could not retrieve" each time rather than
-inventing a number. After the experiment one Retry-After-aware retry was added to the tool and
-requests 2, 9 and 10 were re-run (`eval/results/stage05_rate_limited_rerun.jsonl`, a separate,
-later run): all three then returned counts (LoRA 24 778, Reflexion 6 274, as of 2026-10-24), with the
-same tool chains. The table above is the original run; the re-run is not folded into it.
+The success and score columns above are the original graders' verdicts (majority and median). Mean
+median score (1–5) as recorded: multi-step requests Stage 4 2.10, Stage 5 4.00; all 11 requests 2.36
+and 4.09. The four Stage 5 failures are the live `get_citation_count` hop hitting Semantic Scholar's
+unauthenticated rate limit; the agent reported "could not retrieve" each time rather than inventing a
+number. After the experiment one Retry-After-aware retry was added to the tool and requests 2, 9 and
+10 were re-run (`eval/results/stage05_rate_limited_rerun.jsonl`, a separate, later run): all three
+then returned counts (LoRA 24 778, Reflexion 6 274, as of 2026-10-24), with the same tool chains. The
+table above is the original run; the re-run is not folded into it, and it cannot reconstruct the
+original run's tool results.
 
-**Content-only success** (same answers, but a hand-written citation counts if every checkable
-field matches the catalogue, which the graders confirmed for requests 1 and 8): Stage 4 **2/10**,
-Stage 5 **6/10**. Provenance is the only difference between the two measures; it is reported
-separately because a citation produced by a tool is traceable, not thereby correct, and a citation
-written from memory is untraceable, not thereby wrong.
+**One rubric applied to both stages.** After review, every answer was re-assessed against the raw
+outputs (`eval/results/stage04_on_multistep.jsonl`, `eval/results/stage05.jsonl`) and the catalogue
+with one explicit rubric, keeping three dimensions apart: *task completion* (which parts of the
+request were delivered), *factual correctness* (no claim contradicts the catalogue or is otherwise
+false), and *tool provenance* (citation strings and counts produced by the matching tool call). A part
+whose correctness depends on tool results that were not logged is **unverified**: not called false, not
+credited as verified. Rubric score: 5 = complete, correct, nothing unsupported; 4 = complete with a
+minor flaw (an unsupported claim, a flagged off-topic paper, wasted calls, missing provenance);
+3 = main part delivered but a part missing or unverified; 2 = a factual error, or most parts
+missing; 1 = fabricated content. The rubric scores are a re-application of the recorded evidence,
+not a new run, and are marked as such; the graders' recorded medians are kept alongside.
 
-**What the flagged claims actually were.** The graders quoted every claim they flagged; sorting the
-quotes against the raw answers gives three categories (`eval/results/stage05_grades.json`):
+| # | Stage 4: completion / correctness / provenance | S4 status (recorded · rubric) | Stage 5: completion / correctness / provenance | S5 status (recorded · rubric) |
+|---|---|---|---|---|
+| 1 | complete / correct / APA hand-written | content-only (3 · 4) | complete / correct / traceable | verified (5 · 5) |
+| 2 | count not deliverable with 3 tools / correct ("listed on Semantic Scholar" unsupported) / — | fail (2 · 2) † | count requested, rate-limited / correct / — | fail (3 · 2) |
+| 3 | counts not deliverable / correct / — | fail (2 · 2) † | counts requested, both rate-limited / correct / — | fail (3 · 2) |
+| 4 | ReAct described, no related papers / correct / — | fail (2 · 3) | complete / correct / — | verified (4 · 4) |
+| 5 | listed hits (2 of 5 off-topic, unflagged), "likely ReAct" guessed / **error: six fabricated co-authors** / BibTeX hand-written | fail (1 · 1) | papers found but not listed, ranking from unlogged counts (2 of 5 candidates off-topic), BibTeX / correct / BibTeX traceable, **count and ranking unverifiable** | **unverified** (4 · 3) |
+| 6 | year corrected, BibTeX differs from the record (title "Generative adversarial nets", NeurIPS venue and pages unsupported) / title contradicts the catalogue record (it is the proceedings title) / hand-written | fail (2 · 2) ‡ | complete / correct / traceable | verified (5 · 5) |
+| 7 | neither part / — / — | fail (2 · 2) | complete / correct / — | verified (5 · 5) |
+| 8 | ViT and CLIP selected, BERT excluded with a note / correct; CLIP relevance not supported by the retrieved evidence / BibTeX hand-written | content-only (3 · 4) | ViT, CLIP and BERT (BERT flagged as not vision-focused) / correct; CLIP relevance not supported by the retrieved evidence / traceable | verified (4 · 4) |
+| 9 | first author corrected, count not deliverable / **error: "The paper is not authored by Yao"** — false as written (Yao is the sixth author) and inconsistent with the preceding correct statement that Yao is not the first author / — | fail (2 · 2) † | reference checked, count rate-limited / correct / — | fail (4 · 3) |
+| 10 | paper described, no neighbour found, counts not deliverable / correct / — | fail (2 · 2) † | paper described, a "closest" paper chosen by lexical search, counts rate-limited / correct / — | fail (3 · 3) |
+| 11 | complete / correct / traceable | verified (5 · 5) | complete / correct / traceable | verified (5 · 5) |
 
-| category | Stage 4 (3 tools, 1 round) | Stage 5 (5 tools, loop) |
+† Stage 4 score re-checked by the independent panel under the correct three-tool list: unchanged.
+‡ Not re-graded; the original comments mention tools Stage 4 did not have, so this score may still
+carry the premise error (the BibTeX mismatch alone supports 2).
+
+| measure (multi-step requests 1–10) | Stage 4 | Stage 5 |
 |---|---|---|
-| **factual error** — contradicts the catalogue or is demonstrably false | **2 answers**: Q5 (six fabricated ReAct co-authors, e.g. "Sha, Yuhuai", "Zhou, Denny"); Q9 ("the paper is not authored by Yao" — Shunyu Yao is the sixth author of 2303.11366) | **0** found by the graders, who checked every citation field against the catalogue |
-| **unsupported claim** — stated as fact, backed by no tool result, not checkable in the catalogue | **3 answers**: Q2 ("is listed on Semantic Scholar"), Q5 ("most cited … is likely ReAct"), Q6 (NeurIPS venue and pages 2672–2680; title "Generative adversarial nets", the proceedings title, where the catalogue record says "Generative Adversarial Networks") | **1 answer**: Q5 ("the most cited one among them" rests on whichever of the five counts came back; CLIP and InstructGPT, both off-topic, were among the five) |
-| **missing provenance** — citation or count not produced by the matching tool call | **4 answers**: Q1, Q5, Q6, Q8 (every citation Stage 4 produced, because it could not call `format_citation` after a search) | **0** |
-| any of the above | 6/11 answers (Q1, Q2, Q5, Q6, Q8, Q9) | 1/11 (Q5) |
+| verified success — all parts delivered, correct, citations/counts traceable | **0/10** | **5/10** |
+| unverified — delivered, but a part rests on unlogged tool results | 0 | 1 (Q5) |
+| content-only success — as above, provenance not required | 2/10 (Q1, Q8) | 5/10 (+1 unverified) |
+| answers with a factual error | 2 (Q5, Q9; Q6 borderline) | 0 |
+| answers with an unsupported claim | 4 (Q2, Q5, Q6, Q8) | 2 (Q5, Q8) |
+| answers with a citation lacking tool provenance | 4 (Q1, Q5, Q6, Q8) | 0 |
+| mean score — recorded medians · rubric | 2.10 · 2.40 | 4.00 · 3.60 |
+| single-step control (request 11) | verified 1/1 | verified 1/1 |
 
-The earlier wording "invented claims 7 → 0" combined all three categories and included Q10, where
-the grader's flag rested on the wrong tool list; it is withdrawn. The defensible statements are:
-*factual errors 2 → 0* in this run, and *citations without tool provenance 4 → 0*. Q6's title is a
-borderline case (it is the real NeurIPS title; it only mismatches the catalogue's arXiv record).
+The earlier wording "invented claims 7 → 0" combined the three dimensions and included Q10, where the
+grader's flag rested on the wrong tool list; it is withdrawn. On the recorded evidence the defensible
+statements are: factual errors 2 → 0, citations without tool provenance 4 → 0, verified success 0/10
+→ 5/10.
+
+**The three contested judgments, as resolved.** *Q8, CLIP.* The request asks for "transformers for
+computer vision". The CLIP paper (2103.00020) trains Vision Transformer image encoders — Section 2.4:
+"we consider two different architectures for the image encoder … ResNet-50 … For the second
+architecture, we experiment with the recently introduced Vision Transformer (ViT)"; models ViT-B/32,
+ViT-B/16 and ViT-L/14 — so including it is factually relevant, and both systems were right to select
+it. The evidence available to the agent did not support that selection: the catalogue abstract never
+mentions transformers, and neither system said so. CLIP is therefore counted as correct but
+*unsupported by the retrieved evidence* for both systems, which keeps Q8 a success with a minor flaw
+(rubric 4), not a full-credit answer. *Q5, "most cited".* Stage 5's ranking rests on five
+`get_citation_count` calls whose returned values were not logged (two of the five candidates, CLIP
+and InstructGPT, are off-topic for the request). The 6 294 figure and the ranking are **unverified**:
+not shown false, not credited as verified completion. Q5 is therefore excluded from Stage 5's verified
+successes; a new run would be labelled separately and could not reconstruct the original tool results.
+*Q9, Yao.* Stage 4's summary line "The paper is not authored by Yao" is a factual error as written:
+Shunyu Yao is the sixth author of 2303.11366. The preceding sentence ("Shunyu Yao is the first author
+of other papers … but not the Reflexion paper") was correct, so the answer was internally
+inconsistent rather than uniformly wrong; the error stands.
 
 **Limitation of the comparison.** Stage 4 and Stage 5 differ in two ways at once: the closed loop
 *and* two extra tools (`get_citation_count`, `check_citation`). Six of the ten multi-step requests
 (2, 3, 5, 6, 9, 10) need one of the new tools, so Stage 4 could not have completed them with any
 number of rounds; the experiment measures the combined stage upgrade, not the loop alone. The four
-requests that need only Stage 4's three tools but two dependent calls (1, 4, 7, 8) are the cleanest
-evidence for the loop itself: Stage 4 0/4 strict (2/4 content-only), Stage 5 4/4. A controlled
-comparison, the same five tools in both architectures on fixed data, is an optional follow-up, not
-part of M1.
+requests that need only Stage 4's three tools but two dependent calls (1, 4, 7, 8) give evidence
+consistent with a benefit from the loop: Stage 4 0/4 verified (2/4 content-only), Stage 5 4/4. This
+subset is not a controlled isolation of the loop — the system prompt, the tool list offered to the
+model and the run differ between the two stages. A controlled comparison, the same five tools in both
+architectures on fixed data, is an optional follow-up, not part of M1.
 
-**Independent re-grade of the contested items** (`eval/results/stage05_regrade_q5_q8.json`; three
-new graders, same model, explicit rubric: relevance judged from the catalogue abstracts, success =
-every part delivered, every paper presented as relevant either on-topic or flagged, no factual
-error; provenance reported separately). Q5: Stage 4 0/3 success, median 1 (unchanged); Stage 5 2/3,
-median 4 (unchanged majority, confidence *medium*). Q8: Stage 4 2/3, median 4 (was 0/3, 3 — under a
-rubric that does not require tool provenance its content-correct hand-written BibTeX counts, which is
-the content-only measure above); Stage 5 2/3, median 4 (unchanged majority, *medium*). Stage 4 on
-Q2, Q3, Q9, Q10 under its true tool list: still unsuccessful, median 2 each (unchanged); the graders
-confirmed that its "no citation data from the current tools" statements are true. **No recorded score
-was changed**; the tables keep the original run's grades. Three judgments are flagged for review
-because the panel was split or hedged: (1) CLIP (2103.00020) as a "transformer for computer vision"
-— its catalogue abstract never mentions transformers, so two of three graders called it *borderline*;
-counted off-topic, Q8 fails for both systems and Stage 5 drops to 5/10 strict. (2) Q5 Stage 5's "most
-cited among them": the run log stores tool *calls* but not tool *results*, so the 6 294 figure and the
-comparison cannot be audited, and two of the five counted candidates were off-topic; one grader also
-failed the item because the found papers were never listed. Judged unsuccessful, Stage 5 drops to
-5/10 (4/10 if both flags apply). (3) Q9 Stage 4's "The paper is not authored by Yao" — false as
-written (Yao is the sixth author), but the preceding sentence correctly says Yao is not the *first*
-author; read as shorthand, the factual error disappears (score 3 instead of 2). Recording tool results
-with every run is a Stage 12 item.
+**Independent re-grade panel** (`eval/results/stage05_regrade_q5_q8.json`; three new graders, same
+model, explicit rubric, relevance judged from the catalogue abstracts). Q5: Stage 4 0/3 success,
+median 1; Stage 5 2/3, median 4, confidence *medium* (the graders noted that the count and ranking
+cannot be audited from the logs). Q8: Stage 4 2/3, median 4 under a rubric that does not require
+provenance (the content-only measure); Stage 5 2/3, median 4, *medium* — two of three graders called
+CLIP *borderline* from the abstract alone; this was resolved above from the paper's text. Stage 4 on
+Q2, Q3, Q9, Q10 under its correct three-tool list: unsuccessful, median 2 each, unchanged. The
+recorded grades were not altered; the rubric table is the consistent re-application. Still open:
+Q5's Stage 5 count and ranking remain unverified (the runner logs tool calls, not tool results —
+to be fixed in Stage 12), and Q6's Stage 4 score was not re-graded and may carry the premise error.
 
 The cost of the loop is visible: 2.8× tool calls and **3.7× input tokens** on the multi-step
 requests, because every round re-sends the whole history plus the five tool schemas; latency only
@@ -522,7 +565,7 @@ the other recurring waste: after `get_paper` has returned the full record, the a
 or the title again. The graders counted 8 unnecessary calls over the 11 requests. Why: the agent
 prompt says "find the arxiv_id first", and the model applies the rule even when the id is already in
 a `ToolMessage`; and the lexical `search_papers` returns off-topic hits (CLIP and InstructGPT for
-"agents that use tools", BERT for "transformers for computer vision"), which the agent then dutifully
+"agents that use tools", BERT for "transformers for computer vision"), which the agent then
 counts or cites. The first is a prompt/planning problem (Stage 9); the second is retrieval quality
 (Stage 8).
 
@@ -535,8 +578,8 @@ counts or cites. The first is a prompt/planning problem (Stage 9); the second is
    that the request could not be finished (never a half-invented answer), and keep the partial trace —
    the `ToolMessage`s already collected are evidence of what *was* found, so the better message is "I
    found X and Y but could not finish Z". The run should be logged as a budget failure (Stage 12) so
-   recurring ones become test cases (Stage 13). Retrying automatically with a bigger budget is the
-   wrong reflex: the loop usually ran out because it was repeating itself.
+   recurring ones become test cases (Stage 13). Retrying automatically with a larger budget is not
+   appropriate: the loop usually ran out because it was repeating itself.
 3. *Is `recursion_limit` a cost control, a safety control, or both?* Both, and a blunt one. Cost:
    it bounds the number of model calls, and since every round re-sends the whole history, token cost
    grows roughly quadratically with rounds (3.6× input tokens for 2.6× calls here). Safety: it bounds
