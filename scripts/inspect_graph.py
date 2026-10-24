@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")   # author names are not cp1252
 
 from langchain_core.messages import HumanMessage          # noqa: E402
 from app.graph import build_graph                         # noqa: E402
