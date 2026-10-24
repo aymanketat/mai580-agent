@@ -1,18 +1,22 @@
 """build_graph(): all the wiring lives here. You write this file."""
 from langgraph.graph import StateGraph, START, END
+from langgraph.prebuilt import ToolNode, tools_condition
 
 from app.nodes import (
     analyze, generate, review,
     classify, route_by_intent,
-    answer_paper, answer_search, answer_citation, answer_concept, answer_general,
+    answer_concept, answer_general,
+    agent, final_answer,
 )
 from app.state import State
+from app.tools import TOOLS
 
-# Stage 3: every intent maps to exactly one answer node.
+# Stage 3 mapped every intent to its own answer node. Stage 4 sends the three intents that
+# need paper data into one tool-using branch; concept and other are still answered directly.
 ROUTES = {
-    "paper_lookup": "answer_paper",
-    "literature_search": "answer_search",
-    "citation": "answer_citation",
+    "paper_lookup": "agent",
+    "literature_search": "agent",
+    "citation": "agent",
     "concept": "answer_concept",
     "other": "answer_general",
 }
@@ -32,17 +36,24 @@ def build_workflow():
 
 
 def build_graph():
-    # Stage 3: classify, then a conditional edge picks the answer node from the intent.
     builder = StateGraph(State)
     builder.add_node("classify", classify)
-    builder.add_node("answer_paper", answer_paper)
-    builder.add_node("answer_search", answer_search)
-    builder.add_node("answer_citation", answer_citation)
+    builder.add_node("agent", agent)
+    # handle_tool_errors=True turns any exception inside a tool into an error ToolMessage
+    # instead of aborting the run (the default only does that for bad arguments).
+    builder.add_node("tools", ToolNode(TOOLS, handle_tool_errors=True))
+    builder.add_node("final_answer", final_answer)
     builder.add_node("answer_concept", answer_concept)
     builder.add_node("answer_general", answer_general)
 
     builder.add_edge(START, "classify")
     builder.add_conditional_edges("classify", route_by_intent, ROUTES)
-    for answer_node in set(ROUTES.values()):
-        builder.add_edge(answer_node, END)
+    # Stage 4: ONE round of tools. tools_condition -> "tools" if the last message has
+    # tool_calls, else END. After the tools run, final_answer writes the reply; the model
+    # never gets to look at a result and call another tool.
+    builder.add_conditional_edges("agent", tools_condition)
+    builder.add_edge("tools", "final_answer")
+    builder.add_edge("final_answer", END)
+    builder.add_edge("answer_concept", END)
+    builder.add_edge("answer_general", END)
     return builder.compile()

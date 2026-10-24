@@ -104,3 +104,25 @@ answer_concept = _answer_node(
 answer_general = _answer_node(
     ASSISTANT + "Answer briefly. If the request is outside papers and research, say what you can help with."
 )
+
+
+# ---------------------------------------------------------------- Stage 4
+from app.tools import TOOLS  # noqa: E402  (tools import no model, so this stays cheap)
+
+model_with_tools = model.bind_tools(TOOLS)
+
+
+def agent(state: State) -> dict:
+    system = SystemMessage(
+        ASSISTANT + "Use the tools for every paper fact (authors, years, arXiv ids, abstracts) and "
+        "for every citation; never answer those from memory. Answer directly only for general concepts."
+    )
+    return {"messages": [model_with_tools.invoke([system] + state["messages"])]}
+
+
+def final_answer(state: State) -> dict:
+    system = SystemMessage(
+        ASSISTANT + "Answer the student from the tool results above. Copy citations verbatim. "
+        "If a tool returned an error, say what could not be retrieved instead of guessing."
+    )
+    return {"messages": [model.invoke([system] + state["messages"])]}
