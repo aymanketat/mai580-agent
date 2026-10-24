@@ -1,16 +1,20 @@
 """Tools (Stage 4+).
 
 The Research Assistant's data is the paper catalogue in data/papers.json (built from the arXiv
-API by scripts/build_catalogue.py). Tools read it first and only touch the network when
-ARXIV_LIVE=1, so tests and demos run offline.
+API by scripts/build_catalogue.py). Tools read it first and only touch the network when a live
+flag is set (ARXIV_LIVE=1 for arXiv, S2_LIVE=1 for Semantic Scholar; see README), so tests and
+demos run offline.
 
-Every tool returns data, never raises: ToolNode's default error handler only converts bad
-arguments into a ToolMessage and re-raises everything else, which would abort the whole run.
+Every tool returns data rather than raising, so the model receives structured error dicts it can
+act on (retry, say what could not be retrieved). The graph additionally builds its ToolNode with
+handle_tool_errors=True as a safety net for anything that still escapes.
 """
 import difflib
+import email.utils
 import json
 import os
 import re
+import threading
 import time
 import unicodedata
 import urllib.error
@@ -44,8 +48,12 @@ STOPWORDS = {"a", "an", "the", "of", "for", "and", "or", "in", "on", "to", "with
 ID_RE = re.compile(r"(\d{4}\.\d{4,5})(v\d+)?")
 
 
+def _flag(name: str, default: str) -> bool:
+    return os.getenv(name, default).strip().lower() in {"1", "true", "yes"}
+
+
 def _live() -> bool:
-    return os.getenv("ARXIV_LIVE", "0") == "1"
+    return _flag("ARXIV_LIVE", "0")
 
 
 def _tokens(text: str) -> set[str]:
@@ -167,88 +175,311 @@ def format_citation(arxiv_id: str, style: Literal["apa", "bibtex", "ieee"] = "ap
     return {"arxiv_id": bare, "style": style, "citation": citation}
 
 
-# ---------------------------------------------------------------- Stage 5
+# ---------------------------------------------------------------- Stage 5: citation counts
 S2_API = ("https://api.semanticscholar.org/graph/v1/paper/arXiv:{id}"
           "?fields=title,year,citationCount,influentialCitationCount")
-S2_TTL_S = 24 * 3600
-_S2_CACHE: dict[str, tuple[dict, float]] = {}            # arxiv_id -> (result, fetched_at)
+S2_CACHE_DIR = ROOT / "data" / "cache" / "semantic_scholar"      # runtime cache, gitignored
+S2_SNAPSHOT_PATH = ROOT / "data" / "citations_snapshot.json"     # committed demo snapshot (optional)
+S2_RETRY_DEFAULT_S = 2.0      # when Retry-After is missing or unreadable
+S2_RETRY_CAP_S = 5.0          # never sleep longer than this inside a tool call
+S2_MAX_RETRIES = 1            # one retry on 429, then a structured error
+_S2_CACHE: dict[str, dict] = {}                              # in-process copy of cache records
+_S2_LOCK = threading.Lock()                                  # ToolNode may run tool calls in threads
 
 
-def _s2_get(arxiv_id: str, _retry: bool = True) -> dict:
-    """One Semantic Scholar request. Errors come back as {"error": ...}, never as exceptions.
+def _s2_live() -> bool:
+    return _flag("S2_LIVE", "1")
 
-    The unauthenticated pool is shared per IP and answers 429 readily (seen during the Stage 5
-    experiment), so a 429 is retried once after the Retry-After delay (capped at 5 s).
-    """
-    if os.getenv("S2_LIVE", "1") != "1":
-        return {"error": "offline", "detail": "S2_LIVE is not 1"}
-    req = urllib.request.Request(S2_API.format(id=arxiv_id), headers={"User-Agent": "mai580-agent/0.1"})
+
+def _s2_ttl_s() -> int:
+    """Cache lifetime in seconds from S2_CACHE_TTL_HOURS (default one week); unreadable values fall back."""
     try:
-        with urllib.request.urlopen(req, timeout=10) as r:
-            return json.loads(r.read())
-    except urllib.error.HTTPError as exc:
-        if exc.code == 404:
-            return {"error": "not_found", "detail": f"Semantic Scholar has no record for arXiv:{arxiv_id}"}
-        if exc.code == 429:
-            if _retry:
-                time.sleep(min(float(exc.headers.get("Retry-After", 2) or 2), 5))
-                return _s2_get(arxiv_id, _retry=False)
-            return {"error": "rate_limited", "detail": "Semantic Scholar rate limit hit; try again in a minute"}
-        return {"error": "unavailable", "detail": f"HTTP {exc.code}"}
-    except Exception as exc:
-        return {"error": "unavailable", "detail": str(exc)}
+        hours = float(os.getenv("S2_CACHE_TTL_HOURS", "168") or 168)
+    except ValueError:
+        hours = 168.0
+    return int(max(hours, 0) * 3600)
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _iso(dt: datetime) -> str:
+    return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _parse_retry_after(value: str | None, now: datetime | None = None) -> float:
+    """Seconds to wait from a Retry-After header: an integer, an HTTP-date, or nothing.
+    Missing or unreadable values fall back to the default; past dates mean 0; always capped."""
+    if value is None or not str(value).strip():
+        return S2_RETRY_DEFAULT_S
+    text = str(value).strip()
+    delay = None
+    if re.fullmatch(r"\d+(\.\d+)?", text):
+        delay = float(text)
+    else:
+        try:
+            dt = email.utils.parsedate_to_datetime(text)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            delay = (dt - (now or _now())).total_seconds()
+        except (TypeError, ValueError, IndexError):
+            delay = None
+    if delay is None:
+        delay = S2_RETRY_DEFAULT_S
+    return max(0.0, min(delay, S2_RETRY_CAP_S))
+
+
+def _s2_get(arxiv_id: str) -> dict:
+    """One Semantic Scholar lookup. Returns the JSON record, or {"error": ..., "detail": ...}.
+    Never raises. A 429 is retried at most S2_MAX_RETRIES times after a bounded Retry-After wait."""
+    req = urllib.request.Request(S2_API.format(id=arxiv_id), headers={"User-Agent": "mai580-agent/0.1"})
+    for attempt in range(S2_MAX_RETRIES + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=10) as r:
+                body = json.loads(r.read())
+            if not isinstance(body, dict) or not isinstance(body.get("citationCount"), int):
+                return {"error": "unavailable", "detail": "response without an integer citationCount"}
+            return body
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404:
+                return {"error": "not_found", "detail": f"Semantic Scholar has no record for arXiv:{arxiv_id}"}
+            if exc.code == 429:
+                if attempt < S2_MAX_RETRIES:
+                    time.sleep(_parse_retry_after(exc.headers.get("Retry-After") if exc.headers else None))
+                    continue
+                return {"error": "rate_limited",
+                        "detail": f"Semantic Scholar rate limit; {S2_MAX_RETRIES} retry made; try again in a minute"}
+            return {"error": "unavailable", "detail": f"HTTP {exc.code}"}
+        except Exception as exc:                          # timeouts, DNS, bad JSON
+            return {"error": "unavailable", "detail": f"{type(exc).__name__}: {exc}"}
+    return {"error": "unavailable", "detail": "no attempt succeeded"}
+
+
+def _cache_path(arxiv_id: str) -> Path:
+    return S2_CACHE_DIR / f"{arxiv_id}.json"
+
+
+def _cache_read(arxiv_id: str) -> dict | None:
+    """A cached record {"arxiv_id", "retrieved_at", "data"}; a missing or damaged file reads as None."""
+    rec = _S2_CACHE.get(arxiv_id)
+    if rec is not None:
+        return rec if _well_formed(rec) else None
+    path = _cache_path(arxiv_id)
+    try:
+        rec = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, UnicodeDecodeError):     # missing, unreadable or not JSON
+        return None
+    if not _well_formed(rec):
+        return None
+    _S2_CACHE[arxiv_id] = rec
+    return rec
+
+
+def _well_formed(rec) -> bool:
+    """A usable record: {"retrieved_at": "<ISO string>", "data": {..., "citationCount": int}}."""
+    return (isinstance(rec, dict) and isinstance(rec.get("retrieved_at"), str)
+            and isinstance(rec.get("data"), dict) and isinstance(rec["data"].get("citationCount"), int))
+
+
+def _cache_write(arxiv_id: str, rec: dict) -> None:
+    """Atomic write (temp file + os.replace) under a lock, so concurrent tool calls cannot corrupt it.
+    If the replace fails (for example a reader holds the file open on Windows) the temp file is
+    removed and the in-process copy still serves this run."""
+    with _S2_LOCK:
+        _S2_CACHE[arxiv_id] = rec
+        tmp = _cache_path(arxiv_id).with_suffix(f".{os.getpid()}.{threading.get_ident()}.tmp")
+        try:
+            S2_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+            tmp.write_text(json.dumps(rec, ensure_ascii=False), encoding="utf-8")
+            for attempt in range(3):
+                try:
+                    os.replace(tmp, _cache_path(arxiv_id))
+                    break
+                except PermissionError:
+                    if attempt == 2:
+                        raise
+                    time.sleep(0.05)
+        except OSError:
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
+_SNAPSHOT: dict | None = None
+
+
+def _snapshot_read(arxiv_id: str) -> dict | None:
+    """A committed demo snapshot of real responses (scripts/refresh_citations.py); None if absent."""
+    global _SNAPSHOT
+    if _SNAPSHOT is None:
+        try:
+            loaded = json.loads(S2_SNAPSHOT_PATH.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            loaded = {}
+        _SNAPSHOT = loaded if isinstance(loaded, dict) else {}
+    papers = _SNAPSHOT.get("papers")
+    rec = papers.get(arxiv_id) if isinstance(papers, dict) else None
+    return rec if _well_formed(rec) else None
+
+
+def _age_s(rec: dict) -> float:
+    try:
+        retrieved = datetime.strptime(rec["retrieved_at"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except (KeyError, TypeError, ValueError):
+        return float("inf")
+    return (_now() - retrieved).total_seconds()
+
+
+def _count_result(arxiv_id: str, rec: dict, source: str, stale: bool, note: str | None = None) -> dict:
+    d = rec["data"]
+    out = {"arxiv_id": arxiv_id, "title": d.get("title"), "year": d.get("year"),
+           "citation_count": d.get("citationCount"),
+           "influential_citation_count": d.get("influentialCitationCount"),
+           "retrieved_at": rec["retrieved_at"],          # the ORIGINAL retrieval time, never "now"
+           "source": source, "stale": stale}
+    if note:
+        out["note"] = note
+    return out
 
 
 @tool
 def get_citation_count(arxiv_id: str) -> dict:
-    """Return how many times a paper has been cited according to Semantic Scholar, with the
-    retrieval date. Requires the arXiv id: resolve titles with search_papers or check_citation
-    first. On failure returns an error (not_found, rate_limited, offline, unavailable), never a
-    guessed number: tell the student the count could not be retrieved."""
+    """Return how many times a paper has been cited according to Semantic Scholar. Requires the
+    arXiv id: resolve titles with search_papers or check_citation first. The result carries
+    retrieved_at (when the number was fetched), source ("semantic_scholar", "cache" or
+    "snapshot") and stale (true when older than the cache limit): always quote the count with its
+    date, and say when it is a cached or stale value. On failure returns an error (not_found,
+    rate_limited, offline, unavailable), never a guessed number."""
     bare = normalize_id(arxiv_id)
     if bare is None:
         return {"error": f"'{arxiv_id}' is not an arXiv id", "hint": "use search_papers to find the id first"}
-    cached = _S2_CACHE.get(bare)
-    if cached and time.time() - cached[1] < S2_TTL_S:
-        return {**cached[0], "source": "cache"}
-    data = _s2_get(bare)
-    if "error" in data:
+    ttl = _s2_ttl_s()
+    cached = _cache_read(bare)
+    if cached is not None and _age_s(cached) < ttl:
+        return _count_result(bare, cached, "cache", stale=False)
+    if _s2_live():
+        data = _s2_get(bare)
+        if not isinstance(data, dict) or "error" in data or not isinstance(data.get("citationCount"), int):
+            data = (data if isinstance(data, dict) and "error" in data
+                    else {"error": "unavailable", "detail": "response without an integer citationCount"})
+        else:                                             # only well-formed successes are cached
+            rec = {"arxiv_id": bare, "retrieved_at": _iso(_now()), "data": data}
+            _cache_write(bare, rec)
+            return _count_result(bare, rec, "semantic_scholar", stale=False)
+        failure = f"live lookup failed ({data['error']})"
+    else:
+        failure = "offline mode (S2_LIVE is not 1)"
+    if cached is not None:                                # expired, but better than nothing: say so
+        return _count_result(bare, cached, "cache", stale=True,
+                             note=f"{failure}; this is the value retrieved on {cached['retrieved_at']}")
+    snap = _snapshot_read(bare)
+    if snap is not None:
+        return _count_result(bare, snap, "snapshot", stale=_age_s(snap) >= ttl,
+                             note=f"{failure}; this is the committed snapshot value from {snap['retrieved_at']}")
+    if _s2_live():
         return {"arxiv_id": bare, **data}
-    result = {"arxiv_id": bare, "title": data.get("title"), "year": data.get("year"),
-              "citation_count": data.get("citationCount"),
-              "influential_citation_count": data.get("influentialCitationCount"),
-              "retrieved_at": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
-              "source": "semantic_scholar"}
-    _S2_CACHE[bare] = (result, time.time())
-    return result
+    return {"arxiv_id": bare, "error": "offline", "detail": "S2_LIVE is not 1 and no cached value exists"}
+
+
+# ---------------------------------------------------------------- Stage 5: reference checking
+def _fold(text: str) -> str:
+    """Lower-case ASCII letters and digits only: 'Rozière' -> 'roziere', 'Pouget-Abadie' -> 'pougetabadie'."""
+    text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
+    return re.sub(r"[^a-z0-9]", "", text.lower())
 
 
 def _norm_title(text: str) -> str:
+    text = text.replace("×", "x")                         # before the ASCII fold, which would drop it
     text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
-    return " ".join(t for t in re.split(r"[^a-z0-9]+", text.lower().replace("×", "x")) if t)
+    return " ".join(t for t in re.split(r"[^a-z0-9]+", text.lower()) if t)
 
 
-def _similarity(a: str, b: str) -> float:
-    """Best of: whole titles, or the parts before a colon (students often drop the subtitle)."""
-    full = difflib.SequenceMatcher(None, _norm_title(a), _norm_title(b)).ratio()
-    head = difflib.SequenceMatcher(None, _norm_title(a.split(":")[0]), _norm_title(b.split(":")[0])).ratio()
+_SUFFIXES = {"jr", "sr", "ii", "iii", "iv"}
+
+
+def _author_tokens(name: str) -> tuple[list[str], bool]:
+    """Name tokens that could be a surname (initials, suffixes, years, 'et al.' removed), and
+    whether the name was written surname-first with a comma ('Vaswani, A.')."""
+    s = re.sub(r"\(.*?\)", " ", name)                      # drop parenthesised years etc.
+    s = re.sub(r"\bet\.?\s*al\.?", " ", s, flags=re.I)
+    s = re.split(r"\s+and\s+|&|;", s, maxsplit=1)[0]      # first author of a BibTeX-style list
+    surname_first = "," in s
+    if surname_first:                                     # "Vaswani, A."
+        s = s.split(",", 1)[0]
+    tokens = [t for t in re.split(r"\s+", s.replace(".", ". ").strip()) if t]
+    tokens = [t for t in tokens
+              if re.search(r"[A-Za-z]", t)                                  # has letters
+              and not re.fullmatch(r"[A-Za-z]\.?", t)                       # not an initial
+              and not re.fullmatch(r"[A-Z]{2,3}", t)                        # not Vancouver initials "TB"
+              and _fold(t) not in _SUFFIXES]
+    return tokens, surname_first
+
+
+def _author_surname(name: str) -> str:
+    """Folded surname from 'Vaswani', 'Ashish Vaswani', 'Vaswani, A.', 'A. Vaswani', 'A.Vaswani',
+    'Vaswani et al.', 'Vaswani et al. (2017)' or 'Brown TB'; suffixes such as 'Jr.' are ignored."""
+    tokens, _ = _author_tokens(name)
+    return _fold(tokens[-1]) if tokens else _fold(name)
+
+
+def _author_matches(given: str, canonical: str) -> bool:
+    """Does the given first author refer to the catalogue's first author? Surname comparison,
+    plus: a name written surname-first without a comma ('He Kaiming') matches when any token
+    equals the catalogue surname."""
+    target = _author_surname(canonical)
+    if not target:
+        return True
+    tokens, surname_first = _author_tokens(given)
+    if not tokens:
+        return True                                       # nothing usable to compare
+    if _fold(tokens[-1]) == target:
+        return True
+    return not surname_first and any(_fold(t) == target for t in tokens)
+
+
+def _title_match(given: str, canonical: str) -> tuple[str, float]:
+    """How the supplied title relates to the catalogue title: 'exact' (same after normalising case,
+    punctuation, accents and 16x16/16×16), 'subtitle_omitted' (the part before the colon, given
+    without any subtitle), or 'different' (anything else, however similar)."""
+    given = given.strip().rstrip(":").strip()            # "ReAct:" is the head title, not a subtitle
+    ng, nc = _norm_title(given), _norm_title(canonical)
+    similarity = difflib.SequenceMatcher(None, ng, nc).ratio()
+    squash = lambda s: s.replace(" ", "")                 # "Sentence-BERT" == "Sentence BERT" == "SentenceBERT"
+    if squash(ng) == squash(nc):
+        return "exact", 1.0
+    if ":" not in given and ":" in canonical and squash(ng) == squash(_norm_title(canonical.split(":")[0])):
+        return "subtitle_omitted", 1.0
+    return "different", similarity
+
+
+def _candidate_score(given: str, canonical: str) -> float:
+    """For FINDING a likely paper only: best of whole-title and before-the-colon similarity."""
+    full = difflib.SequenceMatcher(None, _norm_title(given), _norm_title(canonical)).ratio()
+    head = difflib.SequenceMatcher(None, _norm_title(given.split(":")[0]),
+                                   _norm_title(canonical.split(":")[0])).ratio()
     return max(full, head)
 
 
 @tool
 def check_citation(title: str, first_author: str | None = None, year: int | None = None) -> dict:
-    """Verify a reference before repeating or correcting it: fuzzy-match the title against the
-    catalogue, then compare the first author's surname and the year. verdict is "verified",
-    "mismatch" (the paper exists but a detail differs; see mismatches) or "unverified" (no close
-    title in the catalogue: say you could not verify it, do not call it fabricated). Use the
-    returned arxiv_id with get_paper, format_citation or get_citation_count."""
+    """Verify a reference before repeating or correcting it. First finds the most likely catalogue
+    paper (candidate), then checks each supplied detail against it. verdict: "verified" (title
+    identical apart from case, punctuation, accents or an omitted subtitle, and the given author and
+    year agree), "mismatch" (a likely paper exists but the title, first author or year differs:
+    see mismatches and quote the candidate's canonical details), or "unverified" (no close title
+    in the catalogue: say you could not verify it, do not call it fabricated). first_author may be
+    a surname, "Ashish Vaswani", "Vaswani, A." or "Vaswani et al.". Use the candidate's arxiv_id
+    with get_paper, format_citation or get_citation_count."""
     records = {**CATALOGUE, **_LIVE}
-    best_score, best = max(((_similarity(title, p["title"]), p) for p in records.values()), key=lambda s: s[0])
+    best_score, best = max(((_candidate_score(title, p["title"]), p) for p in records.values()),
+                           key=lambda s: s[0])
     if best_score < 0.85 and _live():
         try:
             for p in arxiv_client.search(title, 3):
                 _LIVE[p["arxiv_id"]] = p
-                if (s := _similarity(title, p["title"])) > best_score:
+                if (s := _candidate_score(title, p["title"])) > best_score:
                     best_score, best = s, p
         except Exception:
             pass                                          # unreachable arXiv: fall through to unverified
@@ -256,17 +487,27 @@ def check_citation(title: str, first_author: str | None = None, year: int | None
         return {"verdict": "unverified", "title_similarity": round(best_score, 2),
                 "closest_title": best["title"], "closest_arxiv_id": best["arxiv_id"],
                 "note": "no close title in the catalogue; could not verify this reference"}
+
+    match, similarity = _title_match(title, best["title"])
     mismatches = []
-    if first_author:
-        tokens = re.sub(r"\bet\s+al\.?", "", first_author, flags=re.I).replace(",", " ").split()
-        if tokens and _norm_title(tokens[-1]) != _norm_title(best["authors"][0].split()[-1]):
-            mismatches.append({"field": "first_author", "given": first_author, "catalogue": best["authors"][0]})
+    if match == "different":
+        mismatches.append({"field": "title", "given": title, "catalogue": best["title"],
+                           "note": "a similar title is not the same title; check the candidate's details"})
+    if first_author and not _author_matches(first_author, best["authors"][0]):
+        mismatches.append({"field": "first_author", "given": first_author, "catalogue": best["authors"][0]})
     if year is not None and year != best["year"]:
         mismatches.append({"field": "year", "given": year, "catalogue": best["year"],
                            "note": "the catalogue year is the arXiv submission year, not the venue year"})
-    return {"verdict": "mismatch" if mismatches else "verified", "arxiv_id": best["arxiv_id"],
-            "catalogue_title": best["title"], "catalogue_first_author": best["authors"][0],
-            "catalogue_year": best["year"], "title_similarity": round(best_score, 2), "mismatches": mismatches}
+    candidate = {"arxiv_id": best["arxiv_id"], "title": best["title"], "first_author": best["authors"][0],
+                 "year": best["year"], "url": best["url"]}
+    return {"verdict": "mismatch" if mismatches else "verified", "candidate": candidate,
+            "title_match": match, "title_similarity": round(similarity, 2), "mismatches": mismatches,
+            # flat fields kept for callers of the earlier version
+            "arxiv_id": best["arxiv_id"], "catalogue_title": best["title"],
+            "catalogue_first_author": best["authors"][0], "catalogue_year": best["year"],
+            "note": {"exact": "title matches the catalogue record",
+                     "subtitle_omitted": "title matches the catalogue record with the subtitle omitted",
+                     "different": "title differs from the candidate's; see mismatches"}[match]}
 
 
 TOOLS = [search_papers, get_paper, format_citation, get_citation_count, check_citation]

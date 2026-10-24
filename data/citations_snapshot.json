@@ -1,0 +1,194 @@
+{
+ "source": "Semantic Scholar Graph API v1, https://api.semanticscholar.org/graph/v1/paper/arXiv:<id>",
+ "fields": "title,year,citationCount,influentialCitationCount",
+ "note": "Real public responses copied verbatim with their retrieval times; refreshed by scripts/refresh_citations.py.",
+ "papers": {
+  "1312.6114": {
+   "arxiv_id": "1312.6114",
+   "retrieved_at": "2026-10-24T09:46:50Z",
+   "data": {
+    "paperId": "5f5dc5b9a2ba710937e2c413b37b053cd673df02",
+    "title": "Auto-Encoding Variational Bayes",
+    "year": 2013,
+    "citationCount": 17251,
+    "influentialCitationCount": 3105
+   }
+  },
+  "1406.2661": {
+   "arxiv_id": "1406.2661",
+   "retrieved_at": "2026-10-24T09:46:57Z",
+   "data": {
+    "paperId": "13bc4e683075bdd6a3f0155241c276a772d4aa06",
+    "title": "Generative adversarial networks",
+    "year": 2014,
+    "citationCount": 169,
+    "influentialCitationCount": 5
+   }
+  },
+  "2010.11929": {
+   "arxiv_id": "2010.11929",
+   "retrieved_at": "2026-10-24T09:47:07Z",
+   "data": {
+    "paperId": "268d347e8a55b5eb82fb5e7d2f800e33c75ab18a",
+    "title": "An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale",
+    "year": 2020,
+    "citationCount": 72293,
+    "influentialCitationCount": 7661
+   }
+  },
+  "1908.10084": {
+   "arxiv_id": "1908.10084",
+   "retrieved_at": "2026-10-24T09:47:27Z",
+   "data": {
+    "paperId": "93d63ec754f29fa22572615320afe0521f7ec66d",
+    "title": "Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks",
+    "year": 2019,
+    "citationCount": 21578,
+    "influentialCitationCount": 2554
+   }
+  },
+  "1301.3781": {
+   "arxiv_id": "1301.3781",
+   "retrieved_at": "2026-10-24T09:51:44Z",
+   "data": {
+    "paperId": "f6b51c8753a871dc94ff32152c00c01e94f90f09",
+    "title": "Efficient Estimation of Word Representations in Vector Space",
+    "year": 2013,
+    "citationCount": 35342,
+    "influentialCitationCount": 4395
+   }
+  },
+  "2302.04761": {
+   "arxiv_id": "2302.04761",
+   "retrieved_at": "2026-10-24T10:08:58Z",
+   "data": {
+    "paperId": "53d128ea815bcc0526856eb5a9c42cc977cb36a7",
+    "title": "Toolformer: Language Models Can Teach Themselves to Use Tools",
+    "year": 2023,
+    "citationCount": 6294,
+    "influentialCitationCount": 216
+   }
+  },
+  "2305.10601": {
+   "arxiv_id": "2305.10601",
+   "retrieved_at": "2026-10-24T09:48:05Z",
+   "data": {
+    "paperId": "2f3822eb380b5e753a6d579f31dfc3ec4c4a0820",
+    "title": "Tree of Thoughts: Deliberate Problem Solving with Large Language Models",
+    "year": 2023,
+    "citationCount": 5209,
+    "influentialCitationCount": 310
+   }
+  },
+  "2303.11366": {
+   "arxiv_id": "2303.11366",
+   "retrieved_at": "2026-10-24T09:48:10Z",
+   "data": {
+    "paperId": "0671fd553dd670a4e820553a974bc48040ba0819",
+    "title": "Reflexion: language agents with verbal reinforcement learning",
+    "year": 2023,
+    "citationCount": 6274,
+    "influentialCitationCount": 436
+   }
+  },
+  "2103.00020": {
+   "arxiv_id": "2103.00020",
+   "retrieved_at": "2026-10-24T09:50:22Z",
+   "data": {
+    "paperId": "6f870f7f02a8c59c3e23f407f3ef00dd1dcf8fc4",
+    "title": "Learning Transferable Visual Models From Natural Language Supervision",
+    "year": 2021,
+    "citationCount": 58423,
+    "influentialCitationCount": 10716
+   }
+  },
+  "1512.03385": {
+   "arxiv_id": "1512.03385",
+   "retrieved_at": "2026-10-24T09:50:25Z",
+   "data": {
+    "paperId": "2c03df8b48bf3fa39054345bafabfeff15bfd11d",
+    "title": "Deep Residual Learning for Image Recognition",
+    "year": 2015,
+    "citationCount": 243109,
+    "influentialCitationCount": 33150
+   }
+  },
+  "1706.03762": {
+   "arxiv_id": "1706.03762",
+   "retrieved_at": "2026-10-24T09:50:30Z",
+   "data": {
+    "paperId": "204e3073870fae3d05bcbc2f6a8e263d9b72e776",
+    "title": "Attention is All you Need",
+    "year": 2017,
+    "citationCount": 198306,
+    "influentialCitationCount": 21054
+   }
+  },
+  "2203.02155": {
+   "arxiv_id": "2203.02155",
+   "retrieved_at": "2026-10-24T10:08:43Z",
+   "data": {
+    "paperId": "d766bffc357127e0dc86dd69561d5aeb520d6f4c",
+    "title": "Training language models to follow instructions with human feedback",
+    "year": 2022,
+    "citationCount": 25264,
+    "influentialCitationCount": 2518
+   }
+  },
+  "2106.09685": {
+   "arxiv_id": "2106.09685",
+   "retrieved_at": "2026-10-24T10:08:46Z",
+   "data": {
+    "paperId": "a8ca46b171467ceb2d7652fbfb67fe701ad86092",
+    "title": "LoRA: Low-Rank Adaptation of Large Language Models",
+    "year": 2021,
+    "citationCount": 24779,
+    "influentialCitationCount": 3436
+   }
+  },
+  "1409.0473": {
+   "arxiv_id": "1409.0473",
+   "retrieved_at": "2026-10-24T09:52:04Z",
+   "data": {
+    "paperId": "fa72afa9b2cbc8f0d7b05d52548906610ffbb9c5",
+    "title": "Neural Machine Translation by Jointly Learning to Align and Translate",
+    "year": 2014,
+    "citationCount": 30256,
+    "influentialCitationCount": 2622
+   }
+  },
+  "2005.14165": {
+   "arxiv_id": "2005.14165",
+   "retrieved_at": "2026-10-24T10:07:39Z",
+   "data": {
+    "paperId": "90abbc2cf38462b954ae1b772fac9532e2ccd8b0",
+    "title": "Language Models are Few-Shot Learners",
+    "year": 2020,
+    "citationCount": 65120,
+    "influentialCitationCount": 5586
+   }
+  },
+  "1412.6980": {
+   "arxiv_id": "1412.6980",
+   "retrieved_at": "2026-10-24T10:08:01Z",
+   "data": {
+    "paperId": "a6cb366736791bcccc5c8639de5a8f9636bf87e8",
+    "title": "Adam: A Method for Stochastic Optimization",
+    "year": 2014,
+    "citationCount": 172878,
+    "influentialCitationCount": 27313
+   }
+  },
+  "2201.11903": {
+   "arxiv_id": "2201.11903",
+   "retrieved_at": "2026-10-24T10:08:08Z",
+   "data": {
+    "paperId": "1b6e810ce0afd0dd093f789d2b2742d047e316d5",
+    "title": "Chain of Thought Prompting Elicits Reasoning in Large Language Models",
+    "year": 2022,
+    "citationCount": 23203,
+    "influentialCitationCount": 1465
+   }
+  }
+ }
+}

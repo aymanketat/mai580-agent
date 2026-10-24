@@ -1,7 +1,9 @@
+import pytest
 from langchain_core.messages import HumanMessage
 from app.graph import build_workflow
 
 
+@pytest.mark.live
 def test_workflow_visits_three_nodes():
     graph = build_workflow()
     visited = [list(u)[0] for u in graph.stream(

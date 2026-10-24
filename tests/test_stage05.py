@@ -6,6 +6,7 @@ from app.graph import RECURSION_LIMIT, build_graph
 from app.tools import TOOLS, check_citation, get_citation_count
 
 
+@pytest.mark.live
 def test_loop_uses_two_tools():
     out = build_graph().invoke(
         {"messages": [HumanMessage("Find the paper that introduced Sentence-BERT and give me its BibTeX entry.")]},

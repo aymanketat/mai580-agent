@@ -24,7 +24,17 @@ table, and the reflection answers. Versions as pinned by the course: langgraph 1
 "Tests passing at tag" is the whole suite as it existed at that commit, re-run from a checkout of
 each tag on 2026-10-24 (`eval/results/test_runs.md`). Stage 1 had 2 tests; its `"model"`-node
 check was removed in Stage 2 when that node was replaced, so Stage 2 adds one test and the total
-stays at 2. The current working tree passes 15.
+stays at 2. Current tree after the post-review fixes (`tests/test_stage05_regressions.py` added,
+model-calling tests marked `live`): 65 tests, 60 offline passed and 5 live passed (2026-10-24; the
+offline suite also passes with `ARXIV_LIVE=0 S2_LIVE=0` in the environment).
+
+### Correction record
+
+| date | change | where |
+|---|---|---|
+| 2026-10-24, review 1 | Progress note split from this report; "invented claims 7 → 0" withdrawn and replaced by three separate measures; denominators labelled (0/10 vs 6/10, control 1/1); latency rounding explained; reducer reflection corrected; historical test counts re-run (2/2/4/7/15); grader prompt's incorrect tool-count premise disclosed; grader prompts and re-grade panel preserved | Stage 1, 2, 5 sections; `eval/grading/`, `eval/results/test_runs.md` |
+| 2026-10-24, review 2 | Q8: CLIP counted relevant (the paper trains ViT image encoders) but unsupported by the retrieved abstract; Q5: Stage 5 count and ranking marked unverified and excluded from verified success (5/10); Q9: "not authored by Yao" kept as a factual error, noted as internally inconsistent; one rubric applied to all 22 answers; common-tool subset described as consistent with a benefit, not an isolation | Stage 5 section |
+| 2026-10-24, review 3 | Q6 (Stage 4) reclassified: the conference citation matches the official NeurIPS 2014 metadata, so it is correct and only provenance is missing; content-only success 2/10 → 3/10, unsupported claims 4 → 3, rubric mean 2.40 → 2.60; the "six requests need Stage 5 tools" claim corrected to five (Q6 is solvable with Stage 4's tools), subset 0/5 vs 5/5. Tool fixes within Stage 5: `check_citation` no longer verifies an invented subtitle or a near-identical title; author names in surname-first form accepted; `scripts/inspect_graph.py` applies the step budget; citation-count cache persisted on disk with timestamps, expiry, offline mode and a dated snapshot; Retry-After HTTP-dates handled; an independent adversarial review of these fixes found and led to further hardening (malformed cache or snapshot records ignored, unreadable TTL settings tolerated, responses without a count never cached, more author-name forms). 50 regression tests added; grading evidence documented for other runners; README rewritten | Stage 5 section; `app/tools.py`, `scripts/inspect_graph.py`, `tests/`, `eval/grading/README.md`, `README.md` |
 
 Two failures observed in Stage 1 are tracked through the milestone: *invented facts* (fixed by tools
 in Stage 4–5, to be hardened by retrieval in Stage 8 and validation in Stage 15) and *no memory
@@ -381,8 +391,8 @@ so an unbounded loop could make thousands of model calls. Two more tools:
 
 | tool | arguments | what it does |
 |---|---|---|
-| `get_citation_count` | `arxiv_id` | Semantic Scholar citation count with retrieval date; 24 h in-memory cache; one retry on HTTP 429; errors (`not_found`, `rate_limited`, `offline`, `unavailable`) returned as data, never a guessed number |
-| `check_citation` | `title`, `first_author?`, `year?` | fuzzy title match against the catalogue (≥ 0.85, subtitle-tolerant, accent-folded), then surname and year comparison → `verified` / `mismatch` (+ list of mismatches) / `unverified` (never "fabricated"), plus the `arxiv_id` for the other tools |
+| `get_citation_count` | `arxiv_id` | Semantic Scholar citation count with its retrieval time; errors (`not_found`, `rate_limited`, `offline`, `unavailable`) returned as data, never a guessed number. As used in the experiment: 24 h in-memory cache, no retry. After the reviews: one bounded retry on HTTP 429 (Retry-After in seconds or as an HTTP-date), a disk cache in `data/cache/` with expiry (`S2_CACHE_TTL_HOURS`), a `stale` flag, an offline mode (`S2_LIVE=0`) and a committed dated snapshot as last resort; the original retrieval time is always reported |
+| `check_citation` | `title`, `first_author?`, `year?` | finds the most likely catalogue paper (title similarity ≥ 0.85, tolerant of case, punctuation, accents and an omitted subtitle), then checks the supplied details → `verified` / `mismatch` (+ list of mismatched fields and the candidate's canonical details) / `unverified` (never "fabricated"). As used in the experiment, a matching prefix or a near-identical title could be reported as verified; after the reviews, only an identical or subtitle-omitted title verifies, and first authors may be given as a surname, "Ashish Vaswani" or "Vaswani, A." |
 
 ```mermaid
 graph TD;
@@ -438,8 +448,9 @@ told the graders that both systems had all five tools; Stage 4 had only `search_
 and `format_citation`. Stage 4's statements such as "I do not have citation data available from the
 current tools" were therefore *true*, and grader comments of the form "get_citation_count was available
 and never called" about Stage 4 are wrong. The success verdicts are unaffected (those parts were not
-delivered either way), but Stage 4's scores on requests 2, 3, 6, 9 and 10 may be about one point too
-low, and the claim counts below were re-derived by hand from the quoted claims and the raw answers.
+delivered either way). An independent re-grade confirmed Stage 4's scores on requests 2, 3, 9 and 10
+under the correct tool list; request 6 was corrected separately (§ below). The claim counts below
+were re-derived by hand from the quoted claims and the raw answers.
 
 | # | request (short) | expected chain | S4 calls | S5 calls | S4 success | S5 success | S4 → S5 tokens in | note |
 |---|---|---|---|---|---|---|---|---|
@@ -487,7 +498,7 @@ not a new run, and are marked as such; the graders' recorded medians are kept al
 | 3 | counts not deliverable / correct / — | fail (2 · 2) † | counts requested, both rate-limited / correct / — | fail (3 · 2) |
 | 4 | ReAct described, no related papers / correct / — | fail (2 · 3) | complete / correct / — | verified (4 · 4) |
 | 5 | listed hits (2 of 5 off-topic, unflagged), "likely ReAct" guessed / **error: six fabricated co-authors** / BibTeX hand-written | fail (1 · 1) | papers found but not listed, ranking from unlogged counts (2 of 5 candidates off-topic), BibTeX / correct / BibTeX traceable, **count and ranking unverifiable** | **unverified** (4 · 3) |
-| 6 | year corrected, BibTeX differs from the record (title "Generative adversarial nets", NeurIPS venue and pages unsupported) / title contradicts the catalogue record (it is the proceedings title) / hand-written | fail (2 · 2) ‡ | complete / correct / traceable | verified (5 · 5) |
+| 6 | year corrected; BibTeX for the NeurIPS version (title "Generative adversarial nets", the eight authors in order, pages 2672–2680, 2014) / correct — matches the official NeurIPS 2014 metadata for paper 5423 / hand-written | content-only (2 · 4) § | complete / correct / traceable | verified (5 · 5) |
 | 7 | neither part / — / — | fail (2 · 2) | complete / correct / — | verified (5 · 5) |
 | 8 | ViT and CLIP selected, BERT excluded with a note / correct; CLIP relevance not supported by the retrieved evidence / BibTeX hand-written | content-only (3 · 4) | ViT, CLIP and BERT (BERT flagged as not vision-focused) / correct; CLIP relevance not supported by the retrieved evidence / traceable | verified (4 · 4) |
 | 9 | first author corrected, count not deliverable / **error: "The paper is not authored by Yao"** — false as written (Yao is the sixth author) and inconsistent with the preceding correct statement that Yao is not the first author / — | fail (2 · 2) † | reference checked, count rate-limited / correct / — | fail (4 · 3) |
@@ -495,18 +506,23 @@ not a new run, and are marked as such; the graders' recorded medians are kept al
 | 11 | complete / correct / traceable | verified (5 · 5) | complete / correct / traceable | verified (5 · 5) |
 
 † Stage 4 score re-checked by the independent panel under the correct three-tool list: unchanged.
-‡ Not re-graded; the original comments mention tools Stage 4 did not have, so this score may still
-carry the premise error (the BibTeX mismatch alone supports 2).
+§ Corrected after the third review (see the correction record): the graders, and the first version
+of this table, treated the conference title as a contradiction of the catalogue's arXiv title. The
+saved answer was checked against the official NeurIPS metadata
+(papers.nips.cc, paper 5423: "Generative Adversarial Nets", Goodfellow … Bengio, Advances in Neural
+Information Processing Systems, pages 2672–2680; 2014): every detail matches, so the citation is
+correct and only tool provenance is missing, as in Q1 and Q8. The recorded median (2) is kept as
+history; the rubric score is 4.
 
 | measure (multi-step requests 1–10) | Stage 4 | Stage 5 |
 |---|---|---|
 | verified success — all parts delivered, correct, citations/counts traceable | **0/10** | **5/10** |
 | unverified — delivered, but a part rests on unlogged tool results | 0 | 1 (Q5) |
-| content-only success — as above, provenance not required | 2/10 (Q1, Q8) | 5/10 (+1 unverified) |
-| answers with a factual error | 2 (Q5, Q9; Q6 borderline) | 0 |
-| answers with an unsupported claim | 4 (Q2, Q5, Q6, Q8) | 2 (Q5, Q8) |
+| content-only success — as above, provenance not required | 3/10 (Q1, Q6, Q8) | 5/10 (+1 unverified) |
+| answers with a factual error | 2 (Q5, Q9) | 0 |
+| answers with an unsupported claim | 3 (Q2, Q5, Q8) | 2 (Q5, Q8) |
 | answers with a citation lacking tool provenance | 4 (Q1, Q5, Q6, Q8) | 0 |
-| mean score — recorded medians · rubric | 2.10 · 2.40 | 4.00 · 3.60 |
+| mean score — recorded medians · rubric | 2.10 · 2.60 | 4.00 · 3.60 |
 | single-step control (request 11) | verified 1/1 | verified 1/1 |
 
 The earlier wording "invented claims 7 → 0" combined the three dimensions and included Q10, where the
@@ -533,14 +549,17 @@ of other papers … but not the Reflexion paper") was correct, so the answer was
 inconsistent rather than uniformly wrong; the error stands.
 
 **Limitation of the comparison.** Stage 4 and Stage 5 differ in two ways at once: the closed loop
-*and* two extra tools (`get_citation_count`, `check_citation`). Six of the ten multi-step requests
-(2, 3, 5, 6, 9, 10) need one of the new tools, so Stage 4 could not have completed them with any
-number of rounds; the experiment measures the combined stage upgrade, not the loop alone. The four
-requests that need only Stage 4's three tools but two dependent calls (1, 4, 7, 8) give evidence
-consistent with a benefit from the loop: Stage 4 0/4 verified (2/4 content-only), Stage 5 4/4. This
-subset is not a controlled isolation of the loop — the system prompt, the tool list offered to the
-model and the run differ between the two stages. A controlled comparison, the same five tools in both
-architectures on fixed data, is an optional follow-up, not part of M1.
+*and* two extra tools (`get_citation_count`, `check_citation`). Five of the ten multi-step requests
+(2, 3, 5, 9, 10) ask for a citation count, which only Stage 5's `get_citation_count` can provide, so
+Stage 4 could not have completed them with any number of rounds; the experiment measures the
+combined stage upgrade, not the loop alone. Request 6 (check "Goodfellow, 2016" and give the
+correct BibTeX) *can* be completed with Stage 4's tools — `search_papers` → `get_paper` or
+`format_citation` — although Stage 5's recorded run used `check_citation` for it. The five requests
+that are solvable with Stage 4's three tools but need two dependent calls (1, 4, 6, 7, 8) give
+evidence consistent with a benefit from the loop: Stage 4 0/5 verified (3/5 content-only), Stage 5
+5/5. This subset is not a controlled isolation of the loop — the system prompt, the tool list offered
+to the model and the run differ between the two stages. A controlled comparison, the same five tools
+in both architectures on fixed data, is an optional follow-up, not part of M1.
 
 **Independent re-grade panel** (`eval/results/stage05_regrade_q5_q8.json`; three new graders, same
 model, explicit rubric, relevance judged from the catalogue abstracts). Q5: Stage 4 0/3 success,
@@ -551,7 +570,8 @@ CLIP *borderline* from the abstract alone; this was resolved above from the pape
 Q2, Q3, Q9, Q10 under its correct three-tool list: unsuccessful, median 2 each, unchanged. The
 recorded grades were not altered; the rubric table is the consistent re-application. Still open:
 Q5's Stage 5 count and ranking remain unverified (the runner logs tool calls, not tool results —
-to be fixed in Stage 12), and Q6's Stage 4 score was not re-graded and may carry the premise error.
+to be fixed in Stage 12); a later cache or a new run cannot reconstruct the original tool results.
+Q6's Stage 4 classification was corrected against the official NeurIPS metadata (§ above).
 
 The cost of the loop is visible: 2.8× tool calls and **3.7× input tokens** on the multi-step
 requests, because every round re-sends the whole history plus the five tool schemas; latency only

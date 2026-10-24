@@ -1,7 +1,9 @@
+import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 from app.graph import build_graph
 
 
+@pytest.mark.live
 def test_single_node_answers():
     # One question in, one answer out. Later stages add nodes but must keep this contract.
     out = build_graph().invoke({"messages": [HumanMessage("Say OK")]})
