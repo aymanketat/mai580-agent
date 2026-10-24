@@ -7,3 +7,5 @@ from langgraph.graph.message import add_messages
 
 class State(TypedDict, total=False):
     messages: Annotated[list[AnyMessage], add_messages]   # Stage 1
+    analysis: str      # Stage 2: what the student is really asking, and the facts needed
+    draft: str         # Stage 2: first answer before review
