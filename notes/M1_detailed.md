@@ -1,0 +1,546 @@
+# M1 — Graph foundations (Stages 1–5): detailed report
+
+_Supporting evidence for the milestone progress note `notes/M1.md`. This file holds every experiment table, the full reflection answers, the grading method, and the corrections made after review (2026-10-24). Nothing here is required reading for the milestone; the short note is._
+
+Use case **B — Research Assistant**: a graduate student asks about machine-learning papers
+(find papers on a topic, look up a specific arXiv paper, get a citation, explain a concept).
+Data: arXiv API (no key), cached in `data/papers.json`; Semantic Scholar API for citation counts.
+
+Model: `gpt-4.1-mini`, temperature 0. Each stage below records what was built, the experiment
+table, and the reflection answers. Versions as pinned by the course: langgraph 1.2.12, langchain
+1.4.2, langchain-core 1.6.5, langchain-openai 1.6.6, langgraph-checkpoint 4.2.0 (+ langgraph-prebuilt
+1.1.1, langgraph-checkpoint-sqlite 3.1.1), Python 3.11.9.
+
+### M1 at a glance
+
+| stage | tag | graph | tests passing at tag | headline result |
+|---|---|---|---|---|
+| 1 | `stage-01` | `START → model → END` | 2 | 5 questions: 2 correct, 2 honest refusals, 1 confident invention; no memory across runs |
+| 2 | `stage-02` | `analyze → generate → review` | 2 | vs Stage 1 on 10 questions: quality **3.4 vs 3.9** (blind, 3 graders), 1.9× latency, 27× input tokens; the reviewer fixes tone, not facts |
+| 3 | `stage-03` | `classify` + 5 answer nodes | 4 | routing accuracy **90% → 100%** on 20 labelled requests after rewording the `citation` description (same-set caveat) |
+| 4 | `stage-04` | router + `agent → tools → final_answer` | 7 | Stage 1's inventions answered from the catalogue (Llama 2 = 68 authors); two-round requests fail: the model writes citations itself |
+| 5 | `stage-05` | router + `agent ⇄ tools`, budget 12 | 15 | multi-step success **0/10 → 6/10** (single-step control 1/1 both), at 2.6× tool calls and 3.6× input tokens; 4 misses = Semantic Scholar rate limit |
+
+"Tests passing at tag" is the whole suite as it existed at that commit, re-run from a checkout of
+each tag on 2026-10-24 (`eval/results/test_runs.md`). Stage 1 had 2 tests; its `"model"`-node
+check was removed in Stage 2 when that node was replaced, so Stage 2 adds one test and the total
+stays at 2. The current working tree passes 15.
+
+Two failures observed in Stage 1 are tracked through the milestone: *invented facts* (fixed by tools
+in Stage 4–5, to be hardened by retrieval in Stage 8 and validation in Stage 15) and *no memory
+between runs* ("My name is Sara" — Stage 6). The lexical search's off-topic hits (Stage 5) are the
+Stage 8 motivation; the redundant tool calls are the Stage 9 motivation.
+
+Artefacts: `eval/*.jsonl` (labelled question sets), `eval/results/` (every run, raw), `scripts/`
+(`run_questions.py`, `compare_results.py`, `eval_routing.py`, `compare_prebuilt.py`,
+`build_catalogue.py`), `data/papers.json` (23 arXiv records). AI tools: Claude Code was used as a
+pair-programmer for scaffolding, experiment scripts and as blind LLM graders for the Stage 2 and 5
+comparisons; every line of `app/` is explained in this note.
+
+---
+
+## Stage 1 — A single LLM node
+
+**Built.** `build_graph()` in `app/graph.py`: `StateGraph(State)` with one node `"model"`
+(`call_model`), edges `START → model → END`, compiled. `State` has one field, `messages`, with the
+`add_messages` reducer. `run.py` sends each question as a fresh run.
+
+```mermaid
+graph TD;
+	__start__([__start__]):::first
+	model(model)
+	__end__([__end__]):::last
+	__start__ --> model;
+	model --> __end__;
+```
+
+**Tests.** `pytest tests/test_stage01.py` → 2 passed (graph compiles with a `model` node; one
+invoke returns exactly 2 messages, the last an `AIMessage`).
+
+**Observed.** One run with "What does the ReAct paper propose, in two sentences?" streams a single
+update `{"model": {...}}`; the final state holds 2 messages (question + reply); 19 input / 61 output
+tokens, 2.6 s.
+
+**Experiment 1 — five research questions** (one fresh run each; questions in
+`eval/stage01_questions.jsonl`, raw results in `eval/results/stage01.jsonl`; ground truth from
+`data/papers.json`)
+
+| # | question (short) | needs | answer | verdict | tokens in/out | s |
+|---|---|---|---|---|---|---|
+| 1 | What does LoRA do differently from full fine-tuning, when to use it? | general knowledge | freeze weights, train low-rank matrices; use when memory/storage is the constraint | **correct** | 30 / 690 | 5.7 |
+| 2 | Who wrote the ResNet paper, what year? | general knowledge | He, Zhang, Ren, Sun; 2015 | **correct** | 22 / 46 | 1.1 |
+| 3 | Citation count of *Attention Is All You Need* on Semantic Scholar now? | live data | "I don't have real-time access…" | honest refusal (no answer) | 25 / 43 | 0.8 |
+| 4 | Which papers in *my saved catalogue* are about LLM agents, how many in total? | private data (`data/papers.json`) | "I don't have access to your saved catalogue" | honest refusal (no answer) | 34 / 50 | 1.4 |
+| 5 | Exact arXiv id and *latest version* of *Auto-Encoding Variational Bayes*? | rarely-memorised metadata | 1312.6114 **v10** | **confident but invented**: id right, version wrong (v11) | 34 / 65 | 1.1 |
+
+Score: 2 correct, 2 honest "I can't", 1 confident invention. The same graph on the Stage 2 question
+set (`eval/results/stage01_on_stage02set.jsonl`, kept as the Stage 2 baseline) added two more
+inventions: "the Llama 2 paper has **17** authors" (the catalogue lists 68), and, when asked whether a
+made-up reference anchored to arXiv 1908.10084 is real, the model rightly said the paper does not
+exist but then asserted that 1908.10084 is "On Layer Normalization in the Transformer Architecture"
+(it is Sentence-BERT). The model refuses when the question *announces* that it needs live or private
+data, and invents when the question looks like ordinary knowledge but the fact lives in the long tail
+(version numbers, author counts, id→title mappings).
+
+**Experiment 2 — memory across runs.** Two *separate* runs:
+
+| run | question | reply |
+|---|---|---|
+| 1 | My name is Sara. | "Hello Sara! How can I assist you today?" |
+| 2 | What is my name? | "I don't have access to your personal information, so I don't know your name." |
+
+Each run starts from an empty state, so run 2 never sees run 1. The final state of each run has
+exactly 2 messages. This is the limitation Stage 6 (checkpointer + `thread_id`) fixes.
+
+**Reflection.**
+
+1. *Why does the node return `{"messages": [reply]}` and not the full message list?* A node returns
+   an **update**, and the `add_messages` reducer decides how the update merges into the state: it
+   appends new messages (and replaces a message that carries the same `id`). The node therefore only
+   has to know what *it* produced, not the whole history; several nodes (or parallel branches) can each
+   add messages without overwriting each other, and the graph, not the node, owns the conversation.
+2. *What if `messages` had no reducer?* A field without a reducer is **replaced** by whatever a node
+   returns for it. After Stage 1 the state would hold only the reply, because `call_model` returns
+   `{"messages": [reply]}` and that list would replace the one containing the question. A node that
+   returns only other fields does not touch `messages` at all: in Stage 2, `analyze` writes `analysis`
+   and `generate` writes `draft`, so only `review`'s `{"messages": [AIMessage(final)]}` would replace the
+   history, again leaving one message. To keep the history without a reducer, every node that writes
+   `messages` would have to return the full list, which couples it to the whole conversation.
+3. *Which questions did the model get wrong, and why could it not know?* Q5 (VAE latest version:
+   v10, actually v11), plus "Llama 2 has 17 authors" (68) and "1908.10084 is *On Layer Normalization*"
+   (Sentence-BERT). These are long-tail metadata facts that appear rarely or inconsistently in training
+   text, and version numbers change after the training cut-off. The model has no way to look anything
+   up, and `temperature=0` does not make a guess more accurate, only more repeatable. Q3 and Q4 were
+   refused because the wording made the gap obvious ("right now", "my catalogue"). Tools (Stage 4) and
+   retrieval over the catalogue (Stage 8) are the fixes; thread memory (Stage 6) fixes "Sara".
+
+---
+
+## Stage 2 — A sequential workflow
+
+**Built.** Two state fields, `analysis` and `draft` (no reducer: each write replaces the value), and
+three nodes with Research Assistant prompts: `analyze` (restate the question, list the facts needed),
+`generate` (draft an answer given the analysis), `review` (rewrite under 120 words, flag anything it
+cannot verify). Fixed path `START → analyze → generate → review → END`. The graph is kept as
+`build_workflow()` in `app/graph.py` so it stays testable once Stage 3 changes the entry point.
+
+```mermaid
+graph TD;
+	__start__([__start__]):::first
+	analyze(analyze)
+	generate(generate)
+	review(review)
+	__end__([__end__]):::last
+	__start__ --> analyze;
+	analyze --> generate;
+	generate --> review;
+	review --> __end__;
+```
+
+**Streaming.** `graph.stream(..., stream_mode="updates")` yields `{"analyze": {"analysis": ...}}`,
+then `{"generate": {"draft": ...}}`, then `{"review": {"messages": [...]}}`. On "how many authors
+are on the Llama 2 paper?" the draft listed 13 names (the *LLaMA 1* author list) and the review kept
+them, only adding "I cannot independently verify this author list".
+
+**Tests.** `tests/test_stage02.py` → 1 passed (the three nodes are visited in order).
+
+**Experiment — Stage 1 vs Stage 2 on the same 10 questions** (`eval/stage02_questions.jsonl`;
+raw runs in `eval/results/stage01_on_stage02set.jsonl` and `eval/results/stage02.jsonl`). Tokens
+are counted per LLM call with `UsageMetadataCallbackHandler`, because Stage 2's intermediate replies
+live in state fields, not messages. Quality was scored 1–5 by **three independent LLM graders**
+(Claude, model `claude-fable-5-1`, run through Claude Code; prompt preserved in
+`eval/grading/stage02_grading_prompt.js`), blind to which system was A or B, with `data/papers.json`
+as ground truth; the table shows the median (raw grades in `eval/results/stage02_grades.json`).
+
+| # | label | S1 s | S2 s | S1 tok in/out | S2 tok in/out | S1 score | S2 score | note |
+|---|---|---|---|---|---|---|---|---|
+| 1 | short | 1.8 | 3.6 | 18/67 | 262/194 | 5 | 4 | S2 hedges a fully correct author list |
+| 2 | short | 0.7 | 3.1 | 17/11 | 274/197 | 5 | 4 | S2 pads "2018" with unrequested facts |
+| 3 | short | 1.0 | 4.2 | 14/69 | 433/425 | 5 | 2 | S2 volunteers a LoRA author list with a **fabricated name** |
+| 4 | long | 5.8 | 8.6 | 33/844 | 1142/1160 | 4 | 4 | S1 606 words, S2 132 words; both correct |
+| 5 | long | 7.4 | 10.0 | 37/943 | 1483/1483 | 4 | 4 | S2 cites Hu et al. 2021 |
+| 6 | long | 8.2 | 9.4 | 32/1146 | 1256/1282 | 4 | 4 | S2 cites Kingma & Welling 2013, Goodfellow 2014 |
+| 7 | long | 4.8 | 11.9 | 42/776 | 1700/1709 | 4 | 4 | S2 leaks "numbers in the draft could not be verified" |
+| 8 | needs_data | 1.0 | 3.5 | 33/65 | 357/279 | 5 | 3 | both refuse; S2 adds the superseded v1 Reflexion title |
+| 9 | needs_data | 0.8 | 4.9 | 19/12 | 539/541 | 1 | 1 | S1 "17 authors", S2 "13 authors" + LLaMA-1 list; truth 68 |
+| 10 | needs_data | 3.2 | 7.1 | 62/397 | 811/728 | 2 | 4 | S1 names a wrong paper for 1908.10084; S2 does not |
+| **total / mean** | | **34.7** | **66.4** | **307/4330** | **8257/7998** | **3.9** | **3.4** | |
+
+Totals are sums of the raw measurements (34.65 s and 66.41 s in `eval/results/`); the rows are
+rounded to 0.1 s, so they add to 34.7 and 66.3.
+
+**Is the workflow worth three times the calls?** Not on average: 1.9× latency, 27× input tokens
+(the draft and analysis are re-sent), 1.8× output tokens, and a *lower* mean score (3.4 vs 3.9).
+Where it helps: the fake-reference check (Q10, 2 → 4: the review step stopped the model from naming
+a wrong paper) and the four long trade-off questions, where the 120-word cap produced right-sized,
+decision-oriented answers that cite the canonical papers (same score, a quarter of the length). Where
+it hurts: short factual questions. The analyze → generate steps *add* facts nobody asked for (author
+lists, titles), which gives the model more chances to be wrong, and the review node adds "I cannot
+verify" disclaimers to correct answers while certifying wrong ones (Q9). The graders flagged 5
+Stage 2 answers vs 2 Stage 1 answers, but the flags mix two categories. *Contradicted by the
+catalogue*: 2 vs 2 (Stage 2: a fabricated LoRA co-author in Q3, "13 authors" in Q9; Stage 1: "17
+authors" in Q9, a wrong title for 1908.10084 in Q10). *Stale or unsupported, not shown false*: 3 vs 0
+(Stage 2: the superseded v1 Reflexion title in Q8, "Ho et al., 2020" in Q6, which is not in the
+catalogue, and "neither author has a paper by this title" in Q10). On factual errors the two
+systems tie; Stage 2's extra flags are unverifiable additions. A reviewer that only sees the draft cannot check facts; it can only check tone and length. That
+is the Stage 4 (tools) and Stage 15 (validation against evidence) motivation.
+
+**Reflection.**
+
+1. *Which state fields does `review` read, and which does it write?* It reads `draft` only (not
+   `messages`, not `analysis`), and writes `messages` (one `AIMessage`). `analysis` and `draft` stay
+   in the final state as a trace of the run.
+2. *One request where this fixed path is the wrong path.* "What year did the BERT paper come out?":
+   three calls and 274 input tokens to restate a seven-word question, draft, and review a one-word
+   answer the single node got right in 0.7 s. Equally wrong: "How many citations does Reflexion have
+   right now?", where no amount of analysing or reviewing can supply the missing number.
+
+---
+
+## Stage 3 — Conditional routing
+
+**Built.** A state field `intent`; a structured-output classifier (`Classification` with one
+`Literal` field, so the model can only return one of five labels); a `classify` node; a routing
+function `route_by_intent` (not a node: it returns the key the conditional edge looks up); and five
+answer nodes, each the same model call with a different system prompt. Intents for the Research
+Assistant: `paper_lookup`, `literature_search`, `citation`, `concept`, `other`. The mapping lives in
+`ROUTES` in `app/graph.py`; every answer node goes to `END`.
+
+```mermaid
+graph TD;
+	__start__([__start__]):::first
+	classify(classify)
+	answer_paper(answer_paper)
+	answer_search(answer_search)
+	answer_citation(answer_citation)
+	answer_concept(answer_concept)
+	answer_general(answer_general)
+	__end__([__end__]):::last
+	__start__ --> classify;
+	classify -. paper_lookup .-> answer_paper;
+	classify -. literature_search .-> answer_search;
+	classify -. citation .-> answer_citation;
+	classify -. concept .-> answer_concept;
+	classify -. other .-> answer_general;
+	answer_paper --> __end__;
+	answer_search --> __end__;
+	answer_citation --> __end__;
+	answer_concept --> __end__;
+	answer_general --> __end__;
+```
+
+**Tests.** `tests/test_stage03.py` → 2 passed (a BibTeX request routes to `citation`, a topic
+request to `literature_search`). `tests/test_stage02.py` now targets `build_workflow()`.
+
+**Experiment — routing accuracy** on 20 labelled requests (`eval/routing.jsonl`: 5 paper_lookup,
+5 literature_search, 4 citation, 4 concept, 2 other; each label was checked by a second reviewer
+for ambiguity before the run). Only the `classify` node runs (`scripts/eval_routing.py`).
+
+*v1 descriptions* ("citation = produce a BibTeX/APA citation, or verify/correct a reference"):
+**18/20 = 90%**.
+
+| true \ predicted | paper_lookup | literature_search | citation | concept | other |
+|---|---|---|---|---|---|
+| **paper_lookup** | 5 | | | | |
+| **literature_search** | | 5 | | | |
+| **citation** | 2 | | 2 | | |
+| **concept** | | | | 4 | |
+| **other** | | | | | 2 |
+
+Both misses are *reference checks* ("Is this a real paper and is the citation correct?", "my .bib
+entry … lists only Dosovitskiy … give me a corrected BibTeX") routed to `paper_lookup`: the
+request mentions a paper's authors and year, which the v1 description associates with paper facts.
+
+*v2 descriptions* name the deciding cue ("citation = the student is working on a reference or
+bibliography entry … even if the question mentions authors or a year; paper_lookup = … and is NOT
+checking or producing a reference"): **20/20 = 100%**, confusion table diagonal.
+Caveat: v2 was written after looking at v1's misses on the same 20 items, so 100% is an upper bound,
+not an estimate of accuracy on new requests; Stage 13's 40+ case test set will be the honest number.
+Raw predictions: `eval/results/routing_v1.json`, `eval/results/routing_v2.json`.
+
+**Reflection.**
+
+1. *Why is a structured-output classifier safer than asking the model to write the label?*
+   `with_structured_output(Classification)` sends a JSON schema in which `intent` is an enum of the
+   five labels (OpenAI's strict json_schema mode), so the model cannot return "I think this is a
+   citation question" or "Citation." — any of which would raise `KeyError` in the routing mapping or
+   silently route to the wrong node. The constraint is enforced at the schema level and the result is
+   a typed Python object, so `route_by_intent` can return `state["intent"]` without string cleaning.
+2. *Which requests belong to two intents? What should the router do with them?* "Look up the ReAct
+   paper and give me its BibTeX" (paper_lookup + citation); "find papers on tool-using agents and tell
+   me which is most cited" (literature_search + impact); "what is LoRA and who introduced it" (concept +
+   paper_lookup). A single-label router must pick the intent whose branch can finish the *whole*
+   request (here `citation`, which needs to look the paper up anyway). The better answer is Stage 4–5:
+   route anything that touches paper data into one tool-using agent branch and let the model decide
+   the tool sequence, keeping the router for coarse decisions (tools vs direct answer).
+
+---
+
+## Stage 4 — Tool use (one round)
+
+**Built.** Three read-only tools in `app/tools.py` over the catalogue `data/papers.json` (23 real
+arXiv records fetched by `scripts/build_catalogue.py` through `app/arxiv_client.py`):
+
+| tool | arguments | what it does |
+|---|---|---|
+| `search_papers` | `query`, `max_results=5` | lexical match on title, abstract, authors and short names (BERT, ViT, word2vec …); returns compact cards (id, title, first author, author count, year, 200-char snippet) |
+| `get_paper` | `arxiv_id` | full record by id; accepts `arXiv:` prefixes, version suffixes and URLs; rejects titles with a hint |
+| `format_citation` | `arxiv_id`, `style ∈ {apa, bibtex, ieee}` | deterministic reference from the record (APA 7 20-author rule for Llama 2's 68 authors) |
+
+Every tool returns a dict, never raises (an error is `{"error": ...}`): `ToolNode`'s default handler
+only converts bad *arguments* into a `ToolMessage` and re-raises everything else, which would abort
+the run; `ToolNode(TOOLS, handle_tool_errors=True)` is the second net. Live arXiv calls happen only
+with `ARXIV_LIVE=1`, so tests and demos are offline. Nodes `agent` (model with `bind_tools(TOOLS)`),
+`tools`, `final_answer` (model without tools). The Stage 3 router now sends `paper_lookup`,
+`literature_search` and `citation` to `agent`; `concept` and `other` are still answered directly.
+`tools_condition` routes `agent → tools` when the last message has `tool_calls`, else `END`.
+
+```mermaid
+graph TD;
+	__start__([__start__]):::first
+	classify(classify)
+	agent(agent)
+	tools(tools)
+	final_answer(final_answer)
+	answer_concept(answer_concept)
+	answer_general(answer_general)
+	__end__([__end__]):::last
+	__start__ --> classify;
+	classify -. paper_lookup / literature_search / citation .-> agent;
+	classify -. concept .-> answer_concept;
+	classify -. other .-> answer_general;
+	agent -. tool_calls .-> tools;
+	agent -. no tool call .-> __end__;
+	tools --> final_answer;
+	final_answer --> __end__;
+	answer_concept --> __end__;
+	answer_general --> __end__;
+```
+
+**Tests.** `pytest tests` → 7 passed. `tests/test_stage04.py` calls the three tools directly with
+`tool.invoke({...})`, no LLM and no network (alias search, id normalisation, title rejection, APA /
+BibTeX output, the 68-author truncation).
+
+**Experiment** (`eval/stage04_questions.jsonl` → `eval/results/stage04.jsonl`; 20.6 s and 7 614 /
+1 100 tokens for 7 questions — the tool schemas travel with every `agent` call):
+
+| # | question (short) | tool calls (one round) | result |
+|---|---|---|---|
+| 1 | Which catalogue papers are about LLM agents / tool use, how many in total? | `search_papers` ×3 in parallel ("LLM agents", "tool use", **""**) | lists 7 papers incl. marginal lexical hits (Llama 2, CLIP, InstructGPT); the *total* (23) is not exposed by any tool, so the model answered "7 … related" and never gave the catalogue size |
+| 2 | Exact arXiv id and latest version of the VAE paper? | `search_papers` | id 1312.6114 **correct**; "latest version could not be retrieved" — the card has no version, `get_paper` would, but there is no second round (Stage 1 had invented v10) |
+| 3 | How many authors on the Llama 2 paper? | `search_papers` | **68, correct** (the card carries `author_count`); Stage 1 said 17, Stage 2 said 13 |
+| 4 | Is 'Gated Memory Compression…', arXiv 1908.10084, a real paper? | `get_paper` | **correct**: 1908.10084 is Sentence-BERT (Reimers & Gurevych, 2019); Stage 1 had named a wrong paper |
+| 5 | Citation count of *Attention Is All You Need* right now? | `search_papers` (useless) | honest "could not retrieve" — no tool for this until Stage 5 |
+| 6 | Find the paper that introduced Sentence-BERT and give me its BibTeX | `search_papers` only | id found; the BibTeX was **written by `final_answer`**, not by `format_citation` (author names from memory; correct here, but untraceable to any tool result) |
+| 7 | Look up the Reflexion paper by Shinn et al. and give me its APA citation | `search_papers` only | "Shinn, N., et al. (2023). …" — written by the model, **not valid APA 7** (no "et al." in a reference list, 8 authors dropped) |
+
+Stage 1 → Stage 4 on the questions that need data: from 0 correct (2 refusals, 3 inventions) to 3
+correct, 2 honest "cannot retrieve", 0 inventions. The two-round requests (6, 7) show the limitation:
+the message list is `Human → AI(tool_calls=[search_papers]) → ToolMessage(cards) → AI(answer)`.
+`final_answer` has no tools bound, so after seeing the id it cannot call `format_citation`; it
+improvises the citation from the card and its memory. A citation that did not come from a tool
+cannot be verified later (Stage 15).
+
+**Reflection.**
+
+1. *Rewrite one tool docstring badly on purpose. Does tool selection change?* No. With
+   `format_citation`'s description replaced by "Does something with a paper." the model still chose it
+   with the right `style` on 3/3 citation prompts, and it still did so with the tool renamed to `tool_c`.
+   The interface the model reads is the **whole schema**: name, description, parameter names and the
+   `style` enum (`apa | bibtex | ieee`), plus elimination against two tools that clearly do not cite.
+   The docstring matters most when tools overlap (Stage 5's `check_citation` vs `get_paper`), when an
+   argument's meaning is not obvious, or when the model must decide *not* to call a tool.
+2. *Why test tools without the LLM?* Tool tests are deterministic, instant and free, and they isolate
+   tool bugs from model behaviour: the BibTeX key bug (`devlin2018paper` instead of `devlin2018bert`)
+   was found by a direct `format_citation.invoke(...)`, which no end-to-end run would have flagged.
+   LLM tests cost money, can flake at temperature 0, and a failure could be the prompt, the router, the
+   tool or the model.
+3. *What did the two-round request expose?* The loop is not closed: control goes `tools →
+   final_answer → END`, so the model gets exactly one decision. Any request whose second step depends
+   on the first step's result (title → id → citation) ends with the model guessing the second step.
+   Stage 5 changes the edge `tools → final_answer` into `tools → agent`.
+
+---
+
+## Stage 5 — The agent loop (ReAct)
+
+**Built.** One edge changed: `tools → agent` instead of `tools → final_answer`, and the
+`final_answer` node is gone. After the tools run, the same `agent` node sees the `ToolMessage`s and
+decides again: more tools, or answer. A step budget: `RECURSION_LIMIT = 12` (about five tool rounds)
+passed as `{"recursion_limit": 12}` by `run.py` and `scripts/run_questions.py`, both of which catch
+`GraphRecursionError` and return `STEP_BUDGET_MESSAGE`. Reading the installed source showed why this
+matters: in langgraph 1.2.12 the **default limit is 10 007**, not the 25 the tutorial text mentions,
+so an unbounded loop could make thousands of model calls. Two more tools:
+
+| tool | arguments | what it does |
+|---|---|---|
+| `get_citation_count` | `arxiv_id` | Semantic Scholar citation count with retrieval date; 24 h in-memory cache; one retry on HTTP 429; errors (`not_found`, `rate_limited`, `offline`, `unavailable`) returned as data, never a guessed number |
+| `check_citation` | `title`, `first_author?`, `year?` | fuzzy title match against the catalogue (≥ 0.85, subtitle-tolerant, accent-folded), then surname and year comparison → `verified` / `mismatch` (+ list of mismatches) / `unverified` (never "fabricated"), plus the `arxiv_id` for the other tools |
+
+```mermaid
+graph TD;
+	__start__([__start__]):::first
+	classify(classify)
+	agent(agent)
+	tools(tools)
+	answer_concept(answer_concept)
+	answer_general(answer_general)
+	__end__([__end__]):::last
+	__start__ --> classify;
+	classify -. paper_lookup / literature_search / citation .-> agent;
+	classify -. concept .-> answer_concept;
+	classify -. other .-> answer_general;
+	agent -. tool_calls .-> tools;
+	agent -. answer .-> __end__;
+	tools --> agent;
+	answer_concept --> __end__;
+	answer_general --> __end__;
+```
+
+**`create_agent` comparison** (`scripts/compare_prebuilt.py`). `create_agent(model, tools=TOOLS,
+system_prompt=...)` builds `__start__ → model`, `model -.-> tools`, `model -.-> __end__`,
+`tools -.-> model`: the same loop with the LLM node named `model` instead of `agent`, no router and
+no direct-answer branches, and the `tools → model` edge drawn *conditional* (the prebuilt can end
+after a tool when `return_direct` or a structured response is configured). The system prompt is a
+keyword argument prepended at call time, not stored in state. (`langgraph.prebuilt.create_react_agent`
+still imports but warns `LangGraphDeprecatedSinceV10` when called.) The hand-built graph is the one in
+`app/graph.py`; the prebuilt is a one-liner that produces exactly the edges above and nothing else.
+
+**Tests.** `pytest tests` → 15 passed. `tests/test_stage05.py`: the tutorial's loop test (a
+title → BibTeX request must call `search_papers` *and* `format_citation`), a structural test (edge
+`("tools", "agent")` exists, `final_answer` is gone), five offline `check_citation` cases, and a
+stubbed/cached `get_citation_count` (no network).
+
+**Step budget check.** The same request with `recursion_limit=3` raises `GraphRecursionError`
+("Recursion limit of 3 reached without hitting a stop condition…") and the user sees the polite
+message; with 12 it finishes in 10 messages and 6 tool calls.
+
+**Experiment — Stage 4 (one tool round, 3 tools) vs Stage 5 (agent loop, 5 tools) on 10
+multi-step requests plus 1 single-step control** (`eval/stage05_multistep.jsonl`; runs in
+`eval/results/stage04_on_multistep.jsonl` and `eval/results/stage05.jsonl`, both from 2026-10-24).
+
+*Grading.* Three independent LLM graders (Claude, model `claude-fable-5-1`, run through Claude
+Code; prompt preserved in `eval/grading/stage05_grading_prompt.js`), each with a different lens
+(fact-checker, student, agent-systems reviewer), blind to which system was A or B, checked every
+name, year, id and title against `data/papers.json`. The table reports majority success and the
+median score; raw grades are in `eval/results/stage05_grades.json`. Two rules matter for reading the
+numbers. (1) **Strict success** (the recorded rule): every part of the request delivered *and* every
+citation string or citation count traceable to a `format_citation` / `get_citation_count` call. A
+hand-written citation therefore fails even when its content is right. (2) The grader prompt wrongly
+told the graders that both systems had all five tools; Stage 4 had only `search_papers`, `get_paper`
+and `format_citation`. Stage 4's statements such as "I do not have citation data available from the
+current tools" were therefore *true*, and grader comments of the form "get_citation_count was available
+and never called" about Stage 4 are wrong. The success verdicts are unaffected (those parts were not
+delivered either way), but Stage 4's scores on requests 2, 3, 6, 9 and 10 may be about one point too
+low, and the claim counts below were re-derived by hand from the quoted claims and the raw answers.
+
+| # | request (short) | expected chain | S4 calls | S5 calls | S4 success | S5 success | S4 → S5 tokens in | note |
+|---|---|---|---|---|---|---|---|---|
+| 1 | BERT title → APA | search → cite | 1 | 2 | 0/3 | 3/3 | 883 → 3605 | S4 wrote the APA itself |
+| 2 | LoRA citation count | search → count | 1 | 2 | 0/3 | 0/3 | 1263 → 3552 | S5: **rate-limited**, said so |
+| 3 | LLaMA vs Llama 2 counts | search×2 → count×2 | 2 | 4 | 0/3 | 0/3 | 1112 → 4922 | S5: both counts rate-limited |
+| 4 | what is 2210.03629 + 3 related | get_paper → search | 2 | 3 | 0/3 | 3/3 | 1301 → 4073 | S5 re-searched the id (wasted call) |
+| 5 | agents papers → most cited → BibTeX | search → count×N → cite | 1 | 7 | 0/3 | 3/3 | 1279 → 5680 | S4 guessed "ReAct" and **invented 6 co-authors**; S5 counted CLIP and InstructGPT too |
+| 6 | GAN "Goodfellow, 2016" check + BibTeX | check → cite | 1 | 2 | 0/3 | 3/3 | 1325 → 2915 | S5 used `check_citation`'s id directly |
+| 7 | 2nd author of T5 + their other papers | search → get_paper → search | 1 | 3 | 0/3 | 3/3 | 1301 → 5822 | S4 stopped: "second author not listed" |
+| 8 | vision transformers → BibTeX for all | search → cite×N | 1 | 4 | 0/3 | 3/3 | 1074 → 3649 | S5 also cited BERT (lexical hit), flagged it |
+| 9 | Reflexion "Yao, 2023" check + count | check → count | 1 | 3 | 0/3 | 0/3 | 1377 → 3214 | S5: **unnecessary** search after `check_citation`; count rate-limited |
+| 10 | 1301.3781 → closest paper → compare counts | get_paper → search → count×2 | 2 | 6 | 0/3 | 0/3 | 1065 → 6859 | S5: two redundant searches; counts rate-limited |
+| 11 | BibTeX for 1412.6980 (single) | cite | 1 | 1 | 3/3 | 3/3 | 822 → 1761 | identical |
+| **multi-step, requests 1–10** | | | **13** | **36** | **0/10** | **6/10** | **11 980 → 44 291** | latency 37.2 s → 50.6 s; output tokens 2 282 → 2 685 |
+| **single-step control, request 11** | | | 1 | 1 | 1/1 | 1/1 | 822 → 1 761 | identical behaviour |
+| **all 11** | | | 14 | 37 | 1/11 | 7/11 | 12 802 → 46 052 | latency 40.1 s → 53.5 s |
+
+Mean median score (1–5): multi-step requests Stage 4 **2.10**, Stage 5 **4.00**; all 11 requests
+2.36 and 4.09. All four Stage 5 failures are the live `get_citation_count` hop hitting Semantic
+Scholar's unauthenticated rate limit; the agent reported "could not retrieve" each time rather than
+inventing a number. After the experiment one Retry-After-aware retry was added to the tool and
+requests 2, 9 and 10 were re-run (`eval/results/stage05_rate_limited_rerun.jsonl`, a separate,
+later run): all three then returned counts (LoRA 24 778, Reflexion 6 274, as of 2026-10-24), with the
+same tool chains. The table above is the original run; the re-run is not folded into it.
+
+**Content-only success** (same answers, but a hand-written citation counts if every checkable
+field matches the catalogue, which the graders confirmed for requests 1 and 8): Stage 4 **2/10**,
+Stage 5 **6/10**. Provenance is the only difference between the two measures; it is reported
+separately because a citation produced by a tool is traceable, not thereby correct, and a citation
+written from memory is untraceable, not thereby wrong.
+
+**What the flagged claims actually were.** The graders quoted every claim they flagged; sorting the
+quotes against the raw answers gives three categories (`eval/results/stage05_grades.json`):
+
+| category | Stage 4 (3 tools, 1 round) | Stage 5 (5 tools, loop) |
+|---|---|---|
+| **factual error** — contradicts the catalogue or is demonstrably false | **2 answers**: Q5 (six fabricated ReAct co-authors, e.g. "Sha, Yuhuai", "Zhou, Denny"); Q9 ("the paper is not authored by Yao" — Shunyu Yao is the sixth author of 2303.11366) | **0** found by the graders, who checked every citation field against the catalogue |
+| **unsupported claim** — stated as fact, backed by no tool result, not checkable in the catalogue | **3 answers**: Q2 ("is listed on Semantic Scholar"), Q5 ("most cited … is likely ReAct"), Q6 (NeurIPS venue and pages 2672–2680; title "Generative adversarial nets", the proceedings title, where the catalogue record says "Generative Adversarial Networks") | **1 answer**: Q5 ("the most cited one among them" rests on whichever of the five counts came back; CLIP and InstructGPT, both off-topic, were among the five) |
+| **missing provenance** — citation or count not produced by the matching tool call | **4 answers**: Q1, Q5, Q6, Q8 (every citation Stage 4 produced, because it could not call `format_citation` after a search) | **0** |
+| any of the above | 6/11 answers (Q1, Q2, Q5, Q6, Q8, Q9) | 1/11 (Q5) |
+
+The earlier wording "invented claims 7 → 0" combined all three categories and included Q10, where
+the grader's flag rested on the wrong tool list; it is withdrawn. The defensible statements are:
+*factual errors 2 → 0* in this run, and *citations without tool provenance 4 → 0*. Q6's title is a
+borderline case (it is the real NeurIPS title; it only mismatches the catalogue's arXiv record).
+
+**Limitation of the comparison.** Stage 4 and Stage 5 differ in two ways at once: the closed loop
+*and* two extra tools (`get_citation_count`, `check_citation`). Six of the ten multi-step requests
+(2, 3, 5, 6, 9, 10) need one of the new tools, so Stage 4 could not have completed them with any
+number of rounds; the experiment measures the combined stage upgrade, not the loop alone. The four
+requests that need only Stage 4's three tools but two dependent calls (1, 4, 7, 8) are the cleanest
+evidence for the loop itself: Stage 4 0/4 strict (2/4 content-only), Stage 5 4/4. A controlled
+comparison, the same five tools in both architectures on fixed data, is an optional follow-up, not
+part of M1.
+
+**Independent re-grade of the contested items** (`eval/results/stage05_regrade_q5_q8.json`; three
+new graders, same model, explicit rubric: relevance judged from the catalogue abstracts, success =
+every part delivered, every paper presented as relevant either on-topic or flagged, no factual
+error; provenance reported separately). Q5: Stage 4 0/3 success, median 1 (unchanged); Stage 5 2/3,
+median 4 (unchanged majority, confidence *medium*). Q8: Stage 4 2/3, median 4 (was 0/3, 3 — under a
+rubric that does not require tool provenance its content-correct hand-written BibTeX counts, which is
+the content-only measure above); Stage 5 2/3, median 4 (unchanged majority, *medium*). Stage 4 on
+Q2, Q3, Q9, Q10 under its true tool list: still unsuccessful, median 2 each (unchanged); the graders
+confirmed that its "no citation data from the current tools" statements are true. **No recorded score
+was changed**; the tables keep the original run's grades. Three judgments are flagged for review
+because the panel was split or hedged: (1) CLIP (2103.00020) as a "transformer for computer vision"
+— its catalogue abstract never mentions transformers, so two of three graders called it *borderline*;
+counted off-topic, Q8 fails for both systems and Stage 5 drops to 5/10 strict. (2) Q5 Stage 5's "most
+cited among them": the run log stores tool *calls* but not tool *results*, so the 6 294 figure and the
+comparison cannot be audited, and two of the five counted candidates were off-topic; one grader also
+failed the item because the found papers were never listed. Judged unsuccessful, Stage 5 drops to
+5/10 (4/10 if both flags apply). (3) Q9 Stage 4's "The paper is not authored by Yao" — false as
+written (Yao is the sixth author), but the preceding sentence correctly says Yao is not the *first*
+author; read as shorthand, the factual error disappears (score 3 instead of 2). Recording tool results
+with every run is a Stage 12 item.
+
+The cost of the loop is visible: 2.8× tool calls and **3.7× input tokens** on the multi-step
+requests, because every round re-sends the whole history plus the five tool schemas; latency only
+1.4× because the catalogue tools are fast. No run hit the step budget.
+
+**The number of tool calls varies from run to run.** Request 6 and request 9 both start with
+`check_citation`, which returns the `arxiv_id`. In 6 the agent used that id directly
+(`check_citation → format_citation`); in 9 it ignored it and ran `search_papers` with the full title
+before `get_citation_count` — the same pattern appeared again in the rerun. Requests 4 and 10 show
+the other recurring waste: after `get_paper` has returned the full record, the agent searches the id
+or the title again. The graders counted 8 unnecessary calls over the 11 requests. Why: the agent
+prompt says "find the arxiv_id first", and the model applies the rule even when the id is already in
+a `ToolMessage`; and the lexical `search_papers` returns off-topic hits (CLIP and InstructGPT for
+"agents that use tools", BERT for "transformers for computer vision"), which the agent then dutifully
+counts or cites. The first is a prompt/planning problem (Stage 9); the second is retrieval quality
+(Stage 8).
+
+**Reflection.**
+
+1. *Which single edge turned the workflow into an agent?* `builder.add_edge("tools", "agent")`
+   replacing `builder.add_edge("tools", "final_answer")`. With it, the node that decides what to do
+   is the node that sees the results of what it did; that is the reason → act → observe cycle.
+2. *What should happen when the step budget runs out mid-task?* Stop cleanly, tell the user plainly
+   that the request could not be finished (never a half-invented answer), and keep the partial trace —
+   the `ToolMessage`s already collected are evidence of what *was* found, so the better message is "I
+   found X and Y but could not finish Z". The run should be logged as a budget failure (Stage 12) so
+   recurring ones become test cases (Stage 13). Retrying automatically with a bigger budget is the
+   wrong reflex: the loop usually ran out because it was repeating itself.
+3. *Is `recursion_limit` a cost control, a safety control, or both?* Both, and a blunt one. Cost:
+   it bounds the number of model calls, and since every round re-sends the whole history, token cost
+   grows roughly quadratically with rounds (3.6× input tokens for 2.6× calls here). Safety: it bounds
+   how much a misbehaving loop can do — which matters once tools can write (Stage 11) or once a planted
+   abstract tries to steer the agent into calling tools in a loop (Stage 14). But it counts *steps*,
+   not money or risk: a limit of 12 permits five cheap catalogue lookups or five live API calls or
+   five mock bookings alike. Stage 12 adds the token/cost view and Stage 14 the per-tool authorization.
